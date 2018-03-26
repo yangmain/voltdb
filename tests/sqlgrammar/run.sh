@@ -5,6 +5,9 @@
 # to the tests themselves, and shutting down the VoltDB server at the end.
 # These steps may be run separately, or all together.
 
+# This comment is a fake change, to cause Jenkins to recognize a new, non-empty
+# branch, and therefore kick off tests.
+
 # Run the <voltdb>/tests/test-tools.sh script, which contains useful functions
 function run-test-tools() {
     if [[ "$TT_DEBUG" -ge "2" ]]; then
