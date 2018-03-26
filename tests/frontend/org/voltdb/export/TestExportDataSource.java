@@ -39,6 +39,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.junit.Ignore;
 import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
@@ -182,6 +183,7 @@ public class TestExportDataSource extends TestCase {
         }
     }
 
+    @Ignore
     public void testPollV2() throws Exception{
         System.out.println("Running testPollV2");
         VoltDB.replaceVoltDBInstanceForTest(m_mockVoltDB);
@@ -278,6 +280,7 @@ public class TestExportDataSource extends TestCase {
         }
     }
 
+    @Ignore
     public void testReplicatedPoll() throws Exception {
         System.out.println("Running testReplicatedPoll");
         VoltDB.replaceVoltDBInstanceForTest(m_mockVoltDB);

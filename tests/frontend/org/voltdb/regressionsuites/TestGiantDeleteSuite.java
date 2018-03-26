@@ -25,6 +25,7 @@ package org.voltdb.regressionsuites;
 
 import java.io.IOException;
 
+import org.junit.Ignore;
 import org.voltdb.BackendTarget;
 import org.voltdb.client.Client;
 import org.voltdb.client.ProcCallException;
@@ -35,6 +36,7 @@ import org.voltdb_testprocs.regressionsuites.fixedsql.InsertBatch;
 
 public class TestGiantDeleteSuite extends RegressionSuite {
 
+    @Ignore
     public void testGiantDelete() throws IOException, ProcCallException
     {
         /*

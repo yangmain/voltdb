@@ -37,6 +37,7 @@ import java.util.List;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.AfterClass;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.voltdb.VoltDB.Configuration;
 import org.voltdb.client.Client;
@@ -445,7 +446,7 @@ public class TestAdHocQueries extends AdHocQueryTester {
         }
     }
 
-    @Test
+    @Test @Ignore
     public void testAdHocLengthLimit() throws Exception {
         System.out.println("Starting testAdHocLengthLimit");
         TestEnv env = new TestEnv(m_catalogJar, m_pathToDeployment, 2, 2, 1);

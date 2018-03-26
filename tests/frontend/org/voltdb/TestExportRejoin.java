@@ -26,6 +26,7 @@ package org.voltdb;
 import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
+import org.junit.Ignore;
 
 import org.voltdb.client.Client;
 import org.voltdb.compiler.VoltProjectBuilder;
@@ -69,6 +70,7 @@ public class TestExportRejoin extends TestExportBaseSocketExport {
         closeClientAndServer();
     }
 
+    @Ignore
     public void testExportAndThenRejoinUpdatesExportFlow() throws Exception {
         System.out.println("testExportAndThenRejoinClearsExportOverflow");
         Client client = getClient();

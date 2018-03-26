@@ -37,6 +37,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.TreeMap;
 
+import org.junit.Ignore;
 import org.voltcore.agreement.MiniNode.NodeState;
 import org.voltcore.logging.VoltLogger;
 import org.voltcore.messaging.HostMessenger;
@@ -548,6 +549,7 @@ public class TestFuzzMeshArbiter extends TestCase
         }
     }
 
+    @Ignore
     public void testSimpleJoin() throws InterruptedException {
         m_rejoinLog.info("testSimpleJoin");
         // Fill the array if you want to use specific per-site random seed to reproduce an issue.
@@ -585,6 +587,7 @@ public class TestFuzzMeshArbiter extends TestCase
         }
     }
 
+    @Ignore
     public void testFuzz() throws InterruptedException
     {
         m_rejoinLog.info("testFuzz");

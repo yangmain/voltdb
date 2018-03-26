@@ -27,6 +27,7 @@ import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
+import org.junit.Ignore;
 
 import org.voltdb.client.Client;
 import org.voltdb.client.ClientResponse;
@@ -64,6 +65,7 @@ public class TestExportRejoinWithView extends TestExportBase {
         ExportTestClient.clear();
     }
 
+    @Ignore
     public void testExportViewWithRejoin() throws Exception {
         System.out.println("testExportViewWithRejoin");
         Client client = getClient();
@@ -93,8 +95,9 @@ public class TestExportRejoinWithView extends TestExportBase {
         assertEquals(response.getResults()[0].asScalarLong(), 5000);
     }
 
+    @Ignore
     public void testDeleteInExportViewWithRejoin() throws Exception {
-        System.out.println("testExportViewWithRejoin");
+        System.out.println("testDeleteInExportViewWithRejoin");
         Client client = getClient();
         client.callProcedure("@AdHoc", "CREATE TABLE foo (PKEY INTEGER NOT NULL, VAL INTEGER)");
         client.callProcedure("@AdHoc", "CREATE STREAM EXPORT_WITH_VIEW PARTITION ON COLUMN PKEY (PKEY INTEGER NOT NULL, VAL INTEGER)");
@@ -123,7 +126,7 @@ public class TestExportRejoinWithView extends TestExportBase {
     }
 
     public void testUpdateInExportViewWithRejoin() throws Exception {
-        System.out.println("testExportViewWithRejoin");
+        System.out.println("testUpdateInExportViewWithRejoin");
         Client client = getClient();
         client.callProcedure("@AdHoc", "CREATE TABLE foo (PKEY INTEGER NOT NULL, VAL INTEGER)");
         client.callProcedure("@AdHoc", "CREATE STREAM EXPORT_WITH_VIEW PARTITION ON COLUMN PKEY (PKEY INTEGER NOT NULL, VAL INTEGER)");
@@ -146,6 +149,7 @@ public class TestExportRejoinWithView extends TestExportBase {
         assertEquals(response.getResults()[0].asScalarLong(), 10);
     }
 
+    @Ignore
     public void testStreamViewWithRejoin() throws Exception {
         System.out.println("testStreamViewWithRejoin");
         Client client = getClient();

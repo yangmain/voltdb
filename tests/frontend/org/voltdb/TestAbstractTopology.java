@@ -748,6 +748,7 @@ public class TestAbstractTopology extends TestCase {
         td.expectedPartitionGroups = Integer.MAX_VALUE;
     }
 
+    @Ignore
     public void testManySlightlyImperfectCluster() throws JSONException {
         Random rand = new Random();
 
@@ -766,6 +767,7 @@ public class TestAbstractTopology extends TestCase {
         }
     }
 
+    @Ignore
     public void testTotalChaos() throws JSONException {
         Random rand = new Random();
 

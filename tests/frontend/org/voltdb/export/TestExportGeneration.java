@@ -38,6 +38,7 @@ import org.hamcrest.Matcher;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.voltcore.messaging.VoltMessage;
 import org.voltcore.utils.CoreUtils;
@@ -181,7 +182,7 @@ public class TestExportGeneration {
         VoltDB.replaceVoltDBInstanceForTest(null);
     }
 
-    @Test
+    @Test @Ignore
     public void testAckReceipt() throws Exception {
         ByteBuffer foo = ByteBuffer.allocate(20 + StreamBlock.HEADER_SIZE);
         final CountDownLatch promoted = new CountDownLatch(1);

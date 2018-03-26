@@ -38,6 +38,7 @@ import java.util.Random;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.voltcore.utils.DBBPool;
 import org.voltcore.utils.DBBPool.BBContainer;
@@ -350,7 +351,7 @@ public class TestStreamBlockQueue {
     /**
      * @throws Exception
      */
-    @Test
+    @Test @Ignore
     public void testSyncReopenThenPop() throws Exception {
         for (byte ii = 0; ii < 32; ii++) {
             StreamBlock sb = getStreamBlockWithFill(ii);
