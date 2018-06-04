@@ -332,4 +332,9 @@ public interface VoltDBInterface
     public void swapTables(String oneTable, String otherTable);
 
     public HTTPAdminListener getHttpAdminListener();
+
+    long getLowestSiteId();
+    int getLowestPartitionId();
+
+    public int getKFactor();
 }
