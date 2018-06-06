@@ -2178,7 +2178,7 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback, HostM
     }
 
     private void startMigratePartitionLeaderTask() {
-        final boolean disableSpiTask = "true".equals(System.getProperty("DISABLE_MIGRATE_PARTITION_LEADER", "true"));
+        final boolean disableSpiTask = "true".equals(System.getProperty("DISABLE_MIGRATE_PARTITION_LEADER", "false"));
         if (disableSpiTask) {
             hostLog.info("MigratePartitionLeader is not scheduled.");
             return;
