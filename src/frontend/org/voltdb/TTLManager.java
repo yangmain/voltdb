@@ -91,8 +91,7 @@ public class TTLManager extends StatsSource{
             ClientInterface cl = VoltDB.instance().getClientInterface();
             if (!canceled.get() && cl != null && cl.isAcceptingConnections()) {
                 TimeToLive ttl = ttlRef.get();
-                cl.runTimeToLive(tableName, ttl.getTtlcolumn().getName(),
-                        transformValue(ttl), CHUNK_SIZE, TIMEOUT, stats, this);
+                cl.runTimeToLive(ttl.getTtlcolumn().getName(),transformValue(ttl), CHUNK_SIZE, TIMEOUT,this);
             }
         }
 
@@ -150,6 +149,8 @@ public class TTLManager extends StatsSource{
     private static final VoltLogger hostLog = new VoltLogger("HOST");
     private ScheduledThreadPoolExecutor m_timeToLiveExecutor;
     private static volatile TTLManager m_self;
+
+    //Maps for task, stats, or future's lookup by table
     private final Map<String, TTLTask> m_tasks = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> m_futures = new ConcurrentHashMap<>();
     private final Map<String, TTLStats> m_stats = new ConcurrentHashMap<>();
