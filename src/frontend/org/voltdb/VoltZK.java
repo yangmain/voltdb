@@ -61,7 +61,6 @@ public class VoltZK {
     public static final String perPartitionTxnIds = "/db/perPartitionTxnIds";
     public static final String operationMode = "/db/operation_mode";
     public static final String exportGenerations = "/db/export_generations";
-    public static final String importerBase = "/db/import";
 
     // configuration (ports, interfaces, ...)
     public static final String cluster_metadata = "/db/cluster_metadata";
@@ -99,6 +98,7 @@ public class VoltZK {
 
     // root for MigratePartitionLeader information nodes
     public static final String migrate_partition_leader_info = "/core/migrate_partition_leader_info";
+    public static final String drConsumerPartitionMigration = "/db/dr_consumer_partition_migration";
 
     public static final String iv2masters = "/db/iv2masters";
     public static final String iv2appointees = "/db/iv2appointees";
@@ -202,11 +202,15 @@ public class VoltZK {
 
     public static final String actionLock = "/db/action_lock";
 
+    //register partition while the partition elects a new leader upon node failure
+    public static final String promotingLeaders = "/db/promotingLeaders";
+
     // Persistent nodes (mostly directories) to create on startup
     public static final String[] ZK_HIERARCHY = {
             root,
             mailboxes,
             cluster_metadata,
+            drConsumerPartitionMigration,
             operationMode,
             iv2masters,
             iv2appointees,
@@ -221,7 +225,8 @@ public class VoltZK {
             actionBlockers,
             request_truncation_snapshot,
             host_ids_be_stopped,
-            actionLock
+            actionLock,
+            promotingLeaders
     };
 
     /**
@@ -489,6 +494,8 @@ public class VoltZK {
             VoltZK.removeActionBlocker(zk, node, hostLog);
             return "Can't do " + request + " " + errorMsg;
         }
+
+        hostLog.info("Create action blocker " + node + " successfully.");
         // successfully create a ZK node
         return null;
     }
@@ -507,7 +514,56 @@ public class VoltZK {
         } catch (InterruptedException e) {
             return false;
         }
+        log.info("Remove action blocker " + node + " successfully.");
         return true;
+    }
+
+    // add partition under /db/promotingLeaders when the partition elects a new leader upon node failure
+    public static void registerPromotingPartition(ZooKeeper zk, int partitionId, VoltLogger log) {
+        String node = ZKUtil.joinZKPath(promotingLeaders, Integer.toString(partitionId));
+        try {
+            zk.create(node,
+                      null,
+                      Ids.OPEN_ACL_UNSAFE,
+                      CreateMode.EPHEMERAL);
+        } catch (KeeperException e) {
+            if (e.code() != KeeperException.Code.NODEEXISTS) {
+                VoltDB.crashLocalVoltDB("Unable to register promoting partition " + partitionId, true, e);
+            }
+        } catch (InterruptedException e) {
+            VoltDB.crashLocalVoltDB("Unable to register promoting partition " + partitionId, true, e);
+        }
+    }
+
+    // remove the partition under /db/promotingLeaders when the new leader has accepted promotion
+    public static void unregisterPromotingPartition(ZooKeeper zk, int partitionId, VoltLogger log) {
+        String node = ZKUtil.joinZKPath(promotingLeaders, Integer.toString(partitionId));
+        try {
+            zk.delete(node, -1);
+        } catch (KeeperException e) {
+            if (e.code() != KeeperException.Code.NONODE) {
+                log.error("Failed to remove promoting partition: " + partitionId + "\n" + e.getMessage(), e);
+            }
+        } catch (InterruptedException e) {
+        }
+    }
+
+    // Upon node failures, new partition leaders, including MPI, will be registered right before they
+    // are promoted and unregistered after their promotions are done. Let rejoining nodes wait until
+    // all the partition leader promotions have finished to avoid any
+    // interference with the transaction repair process and score board.
+    public static void checkPartitionLeaderPromotion(ZooKeeper zk) {
+        try {
+            List<String> partitions = zk.getChildren(VoltZK.promotingLeaders, false);
+            // leader promotions could take time with high partition count.
+            long maxWait = TimeUnit.SECONDS.toNanos(120);
+            long start = System.nanoTime();
+            while(!partitions.isEmpty() && (System.nanoTime() - start < maxWait)) {
+                partitions = zk.getChildren(VoltZK.promotingLeaders, false);
+            }
+        } catch (KeeperException | InterruptedException e) {
+            VoltDB.crashLocalVoltDB("Failed to validate partition leader promotions.", true, e);
+        }
     }
 
     /**

@@ -34,6 +34,7 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -2157,8 +2158,8 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
         if (message.startMigratingPartitionLeaders()) {
             if (m_migratePartitionLeaderExecutor == null) {
                 m_migratePartitionLeaderExecutor = Executors.newSingleThreadScheduledExecutor(CoreUtils.getThreadFactory("MigratePartitionLeader"));
-                final int interval = Integer.parseInt(System.getProperty("MIGRATE_PARTITION_LEADER_INTERVAL", "10"));
-                final int delay = Integer.parseInt(System.getProperty("MIGRATE_PARTITION_LEADER_DELAY", "30"));
+                final int interval = Integer.parseInt(System.getProperty("MIGRATE_PARTITION_LEADER_INTERVAL", "1"));
+                final int delay = Integer.parseInt(System.getProperty("MIGRATE_PARTITION_LEADER_DELAY", "1"));
                 m_migratePartitionLeaderExecutor.scheduleAtFixedRate(
                         () -> {startMigratePartitionLeader();},
                         delay, interval, TimeUnit.SECONDS);
@@ -2200,7 +2201,7 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
         int partitionKey = -1;
 
         //MigratePartitionLeader is completed or there are hosts down. Stop MigratePartitionLeader service on this host
-        if (targetHostId == -1 || !voltDB.isClusterCompelte()) {
+        if (targetHostId == -1 || !voltDB.isClusterComplete()) {
             voltDB.scheduleWork(
                     () -> {m_mailbox.deliver(new MigratePartitionLeaderMessage());},
                     0, 0, TimeUnit.SECONDS);
@@ -2254,13 +2255,20 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
                 spi = MiscUtils.roundTripForCL(spi);
             }
 
+            long targetHSId = m_cartographer.getHSIDForPartitionHost(targetHostId, partitionId);
             //Info saved for the node failure handling
             MigratePartitionLeaderInfo spiInfo = new MigratePartitionLeaderInfo(
                     m_cartographer.getHSIDForPartitionHost(hostId, partitionId),
-                    m_cartographer.getHSIDForPartitionHost(targetHostId, partitionId),
+                    targetHSId,
                     partitionId);
             VoltZK.createMigratePartitionLeaderInfo(m_zk, spiInfo);
 
+            notifyPartitionMigrationStatus(partitionId, targetHSId, false);
+
+            if (Boolean.getBoolean("TEST_MIGRATION_FAILURE")) {
+                Thread.sleep(100);
+                throw new IOException("failure simulation");
+            }
             synchronized (m_executeTaskAdpater) {
                 createTransaction(m_executeTaskAdpater.connectionId(),
                         spi,
@@ -2281,15 +2289,20 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
                 //not necessary a failure.
                 tmLog.warn(String.format("Fail to move the leader of partition %d to host %d. %s",
                         partitionId, targetHostId, resp.getStatusString()));
+                notifyPartitionMigrationStatus(partitionId, targetHSId, true);
             }
         } catch (IOException | InterruptedException e) {
             tmLog.warn(String.format("errors in leader change for partition %d: %s", partitionId, e.getMessage()));
+            notifyPartitionMigrationStatus(partitionId,
+                    m_cartographer.getHSIDForPartitionHost(targetHostId, partitionId),
+                    true);
         } finally {
             //wait for the Cartographer to see the new partition leader. The leader promotion process should happen instantly.
             //If the new leader does not show up in 5 min, the cluster may have experienced host-down events.
             long remainingWaitTime = TimeUnit.MINUTES.toMillis(5);
             final long waitingInterval = TimeUnit.SECONDS.toMillis(1);
             boolean anyFailedHosts = false;
+            boolean migrationComplete = false;
             while (remainingWaitTime > 0) {
                 try {
                     Thread.sleep(waitingInterval);
@@ -2297,13 +2310,15 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
                 }
                 remainingWaitTime -= waitingInterval;
                 if (CoreUtils.getHostIdFromHSId(m_cartographer.getHSIdForMaster(partitionId)) == targetHostId) {
+                    migrationComplete = true;
                     break;
                 }
 
                 //some hosts may be down.
-                if (!voltDB.isClusterCompelte()) {
+                if (!voltDB.isClusterComplete()) {
                     anyFailedHosts = true;
-                    break;
+                    // If the target host is still alive, migration is still going on.
+                    if (!voltDB.getHostMessenger().getLiveHostIds().contains(targetHostId)) break;
                 }
             }
 
@@ -2313,6 +2328,80 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
                         () -> {VoltZK.removeActionBlocker(m_zk, VoltZK.migratePartitionLeaderBlocker, tmLog);},
                         5, 0, TimeUnit.SECONDS);
             }
+
+            if (!migrationComplete) {
+                notifyPartitionMigrationStatus(partitionId,
+                        m_cartographer.getHSIDForPartitionHost(targetHostId, partitionId),
+                        true);
+            }
         }
     }
+
+    private void notifyPartitionMigrationStatus(int partitionId, long targetHSId, boolean failed) {
+        for (final ClientInterfaceHandleManager cihm : m_cihm.values()) {
+            try {
+                cihm.connection.queueTask(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (cihm.repairCallback != null) {
+                            if (failed) {
+                                cihm.repairCallback.leaderMigrationFailed(partitionId, targetHSId);
+                            } else {
+                                cihm.repairCallback.leaderMigrationStarted(partitionId, targetHSId);
+                            }
+                        }
+                    }
+                });
+            } catch (UnsupportedOperationException ignore) {
+                // In case some internal connections don't implement queueTask()
+                if (cihm.repairCallback != null) {
+                    if (failed) {
+                        cihm.repairCallback.leaderMigrationFailed(partitionId, targetHSId);
+                    } else {
+                        cihm.repairCallback.leaderMigrationStarted(partitionId, targetHSId);
+                    }
+                }
+            }
+        }
+    }
+
+    public void runTimeToLive(String columnName, long ttlValue, int chunkSize, int timeout,
+            TTLManager.TTLTask task) {
+
+       CountDownLatch latch = new CountDownLatch(1);
+       final ProcedureCallback cb = new ProcedureCallback() {
+           @Override
+           public void clientCallback(ClientResponse resp) throws Exception {
+               if (resp.getStatus() != ClientResponse.SUCCESS) {
+                   hostLog.warn(String.format("Fail to execute TTL on table: %s, column: %s, status: %s",
+                           task.tableName, columnName, resp.getStatusString()));
+               }
+               if (resp.getResults() != null && resp.getResults().length > 0) {
+                   VoltTable t = resp.getResults()[0];
+                   t.advanceRow();
+                   String error = t.getString("MESSAGE");
+                   if (!error.isEmpty()) {
+                       String drLimitError = "";
+                       if (error.indexOf(TTLManager.DR_LIMIT_MSG) > -1) {
+                           // The buffer limit for a DR transaction is 50M. If over the limit,
+                           // the transaction will be aborted. The same is true for nibble delete transaction.
+                           // If hit this error, no more data can be deleted in this TTL table.
+                           drLimitError = "TTL is disabled for this table.";
+                           task.cancel();
+                       }
+                       hostLog.warn("Errors occured on TTL table " + task.tableName + ": " +  error + " " + drLimitError);
+                   } else {
+                       task.stats.update(t.getLong("ROWS_DELETED"), t.getLong("ROWS_LEFT"), t.getLong("LAST_DELETE_TIMESTAMP"));
+                   }
+               }
+               latch.countDown();
+           }
+       };
+       m_dispatcher.getInternelAdapterNT().callProcedure(m_catalogContext.get().authSystem.getInternalAdminUser(),
+               true, 1000 * 120, cb, "@LowImpactDelete", new Object[] {task.tableName, columnName, ttlValue, "<", chunkSize, timeout});
+       try {
+           latch.await(1, TimeUnit.MINUTES);
+       } catch (InterruptedException e) {
+       }
+   }
 }
