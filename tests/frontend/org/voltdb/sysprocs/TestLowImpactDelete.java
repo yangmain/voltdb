@@ -34,6 +34,7 @@ import org.voltdb.VoltTable;
 import org.voltdb.VoltTable.ColumnInfo;
 import org.voltdb.VoltType;
 import org.voltdb.client.Client;
+import org.voltdb.client.ClientConfig;
 import org.voltdb.client.ClientFactory;
 import org.voltdb.client.ClientResponse;
 import org.voltdb.client.NoConnectionsException;
@@ -92,9 +93,8 @@ public class TestLowImpactDelete extends TestCase {
         m_cluster.setHasLocalServer(true);
         m_cluster.compile(builder);
         m_cluster.startUp();
-
-        m_client = ClientFactory.createClient();
-        m_client.createConnection(m_cluster.getListenerAddress(0));
+        ClientConfig clientConfig = new ClientConfig();
+        m_client = m_cluster.createAdminClient(clientConfig);
     }
 
     @After
@@ -344,11 +344,38 @@ public class TestLowImpactDelete extends TestCase {
                     fail("fail to insert data for TTL testing.");
                 }
             }
+            m_client.callProcedure("@Pause");
+            System.out.println("Cluster paused");
+
+            Thread.sleep(60*1000);
+            m_client.callProcedure("@Resume");
+            vt = m_client.callProcedure("@AdHoc", "select count(*) from TTL").getResults()[0];
+
+            //after resumed, there should be still rows undeleted since TTL won't delete if cluster is paused.
+            assertTrue(0 < vt.asScalarLong());
+
+            System.out.println("Cluster resumed");
             Thread.sleep(60*1000);
             vt = m_client.callProcedure("@Statistics", "TTL").getResults()[0];
             System.out.println(vt.toFormattedString());
             vt = m_client.callProcedure("@AdHoc", "select count(*) from TTL").getResults()[0];
+
+            //TTL resumes delete
             assertEquals(0, vt.asScalarLong());
+
+            m_client.callProcedure("@AdHoc", "ALTER TABLE TTL DROP TTL");
+            System.out.println("TTL dropped");
+            for (int i = 1000; i < 1500; i++) {
+                try {
+                    m_client.callProcedure("@AdHoc", "INSERT INTO TTL VALUES(" + i + ",CURRENT_TIMESTAMP())");
+                } catch (IOException | ProcCallException e) {
+                    fail("fail to insert data for TTL testing.");
+                }
+            }
+            Thread.sleep(60*1000);
+            //TTL is dropped, no more delete
+            vt = m_client.callProcedure("@AdHoc", "select count(*) from TTL").getResults()[0];
+            assertEquals(500, vt.asScalarLong());
         } catch (Exception e) {
             fail("Failed to get row count from Table ttl:" + e.getMessage());
         }
