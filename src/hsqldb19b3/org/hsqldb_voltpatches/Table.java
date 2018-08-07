@@ -2732,6 +2732,8 @@ public class Table extends TableBase implements SchemaObject {
             ttl.attributes.put("value", Integer.toString(timeToLive.ttlValue));
             ttl.attributes.put("unit",  timeToLive.ttlUnit);
             ttl.attributes.put("column", timeToLive.ttlColumn.getNameString());
+            ttl.attributes.put("batchSize", Integer.toString(timeToLive.batchSize));
+            ttl.attributes.put("maxFrequency", Integer.toString(timeToLive.maxFrequency));
             table.children.add(ttl);
         }
         assert(indexConstraintMap.isEmpty());
@@ -2763,17 +2765,20 @@ public class Table extends TableBase implements SchemaObject {
     // End of VoltDB extension
 
     // A VoltDB extension to support TTL
-    public void addTTL(int ttlValue, String ttlUnit, String ttlColumn) {
+    public void addTTL(int ttlValue, String ttlUnit, String ttlColumn, int batchSize,
+            int maxFrequency, String streamName) {
         dropTTL();
-        timeToLive = new TimeToLiveVoltDB(ttlValue, ttlUnit, getColumn(findColumn(ttlColumn)));
+        timeToLive = new TimeToLiveVoltDB(ttlValue, ttlUnit, getColumn(findColumn(ttlColumn)),
+                batchSize, maxFrequency, streamName);
     }
 
     public TimeToLiveVoltDB getTTL() {
         return timeToLive;
     }
 
-    public void alterTTL(int ttlValue, String ttlUnit, String ttlColumn) {
-        addTTL(ttlValue, ttlUnit, ttlColumn);
+    public void alterTTL(int ttlValue, String ttlUnit, String ttlColumn,
+            int batchSize, int maxFrequency, String streamName) {
+        addTTL(ttlValue, ttlUnit, ttlColumn, batchSize, maxFrequency, streamName);
     }
 
     public void dropTTL() {
@@ -2788,5 +2793,4 @@ public class Table extends TableBase implements SchemaObject {
     public String toString() {
         return super.toString() + ":" + getName().name;
     }
-    /**********************************************************************/
 }

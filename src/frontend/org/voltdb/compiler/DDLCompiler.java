@@ -1337,11 +1337,16 @@ public class DDLCompiler {
         }
 
         if (ttlNode != null) {
-            TimeToLive ttl =   table.getTimetolive().add(TimeToLiveVoltDB.TTL_NAME);
+            TimeToLive ttl = table.getTimetolive().add(TimeToLiveVoltDB.TTL_NAME);
             String column = ttlNode.attributes.get("column");
             int ttlValue = Integer.parseInt(ttlNode.attributes.get("value"));
             ttl.setTtlunit(ttlNode.attributes.get("unit"));
             ttl.setTtlvalue(ttlValue);
+            ttlValue = Integer.parseInt(ttlNode.attributes.get("batchSize"));
+            ttl.setBatchsize(ttlValue);
+            ttlValue = Integer.parseInt(ttlNode.attributes.get("maxFrequency"));
+            ttl.setMaxfrequency(ttlValue);
+            ttl.setStream(ttlNode.attributes.get("stream"));
             for (Column col : table.getColumns()) {
                 if (column.equalsIgnoreCase(col.getName())) {
                     ttl.setTtlcolumn(col);
