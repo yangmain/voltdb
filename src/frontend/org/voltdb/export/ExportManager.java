@@ -35,6 +35,7 @@ import org.voltcore.messaging.HostMessenger;
 import org.voltcore.utils.DBBPool;
 import org.voltcore.utils.Pair;
 import org.voltdb.CatalogContext;
+import org.voltdb.ClientInterface;
 import org.voltdb.VoltDB;
 import org.voltdb.catalog.CatalogMap;
 import org.voltdb.catalog.Cluster;
@@ -86,6 +87,8 @@ public class ExportManager
     private final AtomicReference<ExportGeneration> m_generation = new AtomicReference<>(null);
 
     private final HostMessenger m_messenger;
+
+    private final ClientInterface m_ci;
 
     /**
      * Set of partition ids for which this export manager instance is master of
@@ -149,10 +152,11 @@ public class ExportManager
             boolean isRejoin,
             boolean forceCreate,
             HostMessenger messenger,
-            List<Integer> partitions)
+            List<Integer> partitions,
+            ClientInterface ci)
             throws ExportManager.SetupException
     {
-        ExportManager em = new ExportManager(myHostId, catalogContext, messenger);
+        ExportManager em = new ExportManager(myHostId, catalogContext, messenger, ci);
         if (forceCreate) {
             em.clearOverflowData();
         }
@@ -249,6 +253,7 @@ public class ExportManager
     protected ExportManager() {
         m_hostId = 0;
         m_messenger = null;
+        m_ci = null;
     }
 
     /**
@@ -257,11 +262,13 @@ public class ExportManager
     private ExportManager(
             int myHostId,
             CatalogContext catalogContext,
-            HostMessenger messenger)
+            HostMessenger messenger,
+            ClientInterface ci)
     throws ExportManager.SetupException
     {
         m_hostId = myHostId;
         m_messenger = messenger;
+        m_ci = ci;
 
         CatalogMap<Connector> connectors = getConnectors(catalogContext);
         CatalogMap<Table> tables = getTables(catalogContext);
@@ -411,7 +418,7 @@ public class ExportManager
 
             File exportOverflowDirectory = new File(VoltDB.instance().getExportOverflowPath());
             ExportGeneration generation = new ExportGeneration(exportOverflowDirectory);
-            generation.initialize(m_messenger, m_hostId, catalogContext, connectors, partitions, exportOverflowDirectory);
+            generation.initialize(m_messenger, m_hostId, m_ci, catalogContext, connectors, partitions, exportOverflowDirectory);
 
             m_generation.set(generation);
             newProcessor.setExportGeneration(generation);

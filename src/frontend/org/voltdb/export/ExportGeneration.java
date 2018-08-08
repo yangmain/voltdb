@@ -43,6 +43,8 @@ import org.voltcore.utils.DBBPool;
 import org.voltcore.utils.Pair;
 import org.voltcore.zk.ZKUtil;
 import org.voltdb.CatalogContext;
+import org.voltdb.ClientInterface;
+import org.voltdb.SimpleClientResponseAdapter;
 import org.voltdb.VoltDB;
 import org.voltdb.VoltZK;
 import org.voltdb.catalog.CatalogMap;
@@ -88,6 +90,9 @@ public class ExportGeneration implements Generation {
 
     private Mailbox m_mbox = null;
 
+    private SimpleClientResponseAdapter m_adapter;
+    private ClientInterface m_ci;
+
     private volatile boolean shutdown = false;
 
     private static final ListeningExecutorService m_childUpdatingThread =
@@ -113,6 +118,7 @@ public class ExportGeneration implements Generation {
 
     void initialize(HostMessenger messenger,
             int hostId,
+            ClientInterface clientInterface,
             CatalogContext catalogContext,
             final CatalogMap<Connector> connectors,
             List<Integer> partitions,
@@ -130,6 +136,11 @@ public class ExportGeneration implements Generation {
 
         // One export mailbox per node, since we only keep one generation
         createAckMailboxesIfNeeded(messenger, allLocalPartitions);
+
+        m_ci = clientInterface;
+        m_adapter = new SimpleClientResponseAdapter(ClientInterface.EXPORT_NIBBLE_DELETE_CID,
+                                                    "ExportNibbleDeleteAdapter");
+        m_ci.bindAdapter(m_adapter, null);
     }
 
     List<Integer> initializeGenerationFromDisk(HostMessenger messenger) {
@@ -766,5 +777,9 @@ public class ExportGeneration implements Generation {
     @Override
     public String toString() {
         return "Export Generation";
+    }
+
+    public void createDeleteTransaction() {
+        m_ci.createTransaction(m_adapter.connectionId(), invocation, isReadOnly, isSinglePartition, isEveryPartition, partition, messageSize, nowNanos);
     }
 }

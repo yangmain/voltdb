@@ -842,6 +842,7 @@ public class ExportDataSource implements Comparable<ExportDataSource> {
                         try {
 
                             // Yang: Call the client adapter here and discard m_ackingCont when a response indicates a successful delete
+                            m_generation.createDeleteTransaction();
 
 
                         } catch (Exception e) {
