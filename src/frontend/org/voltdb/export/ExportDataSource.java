@@ -819,6 +819,46 @@ public class ExportDataSource implements Comparable<ExportDataSource> {
         }
     }
 
+    public class NibbleDeletingContainer extends BBContainer {
+        final AckingContainer m_ackingCont;
+        final ArrayList<Object> m_pkList;
+
+        public NibbleDeletingContainer(BBContainer cont, ArrayList<Object> pkList) {
+            super(null);
+            m_ackingCont = (AckingContainer)cont;
+            m_pkList = pkList;
+        }
+
+        @Override
+        public void discard() {
+            checkDoubleFree();
+            try {
+                m_es.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (exportLog.isTraceEnabled()) {
+                            exportLog.trace("NibbleDeletingContainer.discard with uso: " + m_ackingCont.m_uso);
+                        }
+                        try {
+
+                            // Yang: Call the client adapter here and discard m_ackingCont when a response indicates a successful delete
+
+
+                        } catch (Exception e) {
+                            exportLog.error("Error acking export buffer", e);
+                        } catch (Error e) {
+                            VoltDB.crashLocalVoltDB("Error acking export buffer", true, e);
+                        }
+                    }
+                });
+            } catch (RejectedExecutionException rej) {
+                  //Don't expect this to happen outside of test, but in test it's harmless
+                  exportLog.info("Acking export data task rejected, this should be harmless");
+                  m_ackingCont.discard();
+            }
+        }
+    }
+
     private void forwardAckToOtherReplicas(long uso) {
         Pair<Mailbox, ImmutableList<Long>> p = m_ackMailboxRefs.get();
         Mailbox mbx = p.getFirst();

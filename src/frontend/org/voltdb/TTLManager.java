@@ -1,4 +1,3 @@
-
 /* This file is part of VoltDB.
  * Copyright (C) 2008-2018 VoltDB Inc.
  *

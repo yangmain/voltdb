@@ -38,10 +38,17 @@ import org.voltdb.CatalogContext;
 import org.voltdb.VoltDB;
 import org.voltdb.catalog.CatalogMap;
 import org.voltdb.catalog.Cluster;
+import org.voltdb.catalog.ColumnRef;
 import org.voltdb.catalog.Connector;
 import org.voltdb.catalog.ConnectorProperty;
 import org.voltdb.catalog.ConnectorTableInfo;
+import org.voltdb.catalog.Constraint;
 import org.voltdb.catalog.Database;
+import org.voltdb.catalog.Index;
+import org.voltdb.catalog.Table;
+import org.voltdb.catalog.TimeToLive;
+import org.voltdb.types.ConstraintType;
+import org.voltdb.utils.CatalogUtil;
 import org.voltdb.utils.LogKeys;
 import org.voltdb.utils.VoltFile;
 
@@ -159,6 +166,12 @@ public class ExportManager
         return db.getConnectors();
     }
 
+    private CatalogMap<Table> getTables(CatalogContext catalogContext) {
+        final Cluster cluster = catalogContext.catalog.getClusters().get("cluster");
+        final Database db = cluster.getDatabases().get("database");
+        return db.getTables();
+    }
+
     private boolean hasEnabledConnectors(CatalogMap<Connector> connectors) {
         for (Connector conn : connectors) {
             if (conn.getEnabled() && !conn.getTableinfo().isEmpty()) {
@@ -251,12 +264,13 @@ public class ExportManager
         m_messenger = messenger;
 
         CatalogMap<Connector> connectors = getConnectors(catalogContext);
+        CatalogMap<Table> tables = getTables(catalogContext);
         if (!hasEnabledConnectors(connectors)) {
             exportLog.info("System is not using any export functionality or connectors configured are disabled.");
             return;
         }
 
-        updateProcessorConfig(connectors);
+        updateProcessorConfig(connectors, tables);
 
         exportLog.info(String.format("Export is enabled and can overflow to %s.", VoltDB.instance().getExportOverflowPath()));
     }
@@ -297,8 +311,19 @@ public class ExportManager
         processor.startPolling();
     }
 
-    private void updateProcessorConfig(final CatalogMap<Connector> connectors) {
+    private void updateProcessorConfig(final CatalogMap<Connector> connectors, CatalogMap<Table> tables) {
         Map<String, Pair<Properties, Set<String>>> config = new HashMap<>();
+        Map<String, Table> ttlExportTables = new HashMap<>();
+
+        for (Table t : tables) {
+            CatalogMap<TimeToLive> ttls = t.getTimetolive();
+            if (ttls != null && !ttls.isEmpty()) {
+                TimeToLive ttl = ttls.iterator().next();
+                if (ttl.getStream() != null) {
+                    ttlExportTables.put(t.getTypeName(), t);
+                }
+            }
+        }
 
         // If the export source changes before the previous generation drains
         // then the outstanding exports will go to the new source when export resumes.
@@ -312,12 +337,12 @@ public class ExportManager
 
             connCount++;
             Properties properties = new Properties();
-            Set<String> tables = new HashSet<>();
+            Set<String> streams = new HashSet<>();
 
             String targetName = conn.getTypeName();
 
             for (ConnectorTableInfo ti : conn.getTableinfo()) {
-                tables.add(ti.getTable().getTypeName());
+                streams.add(ti.getTable().getTypeName());
                 tableCount++;
             }
 
@@ -335,7 +360,25 @@ public class ExportManager
                 }
             }
 
-            Pair<Properties, Set<String>> connConfig = new Pair<>(properties, tables);
+            if (streams.size() == 1 && ttlExportTables.get(streams.iterator().next()) != null) {
+                Table t = ttlExportTables.get(streams.iterator().next());
+                boolean pkFound = false;
+                for (Constraint catalog_const : t.getConstraints()) {
+                    ConstraintType const_type = ConstraintType.get(catalog_const.getType());
+                    if (const_type == ConstraintType.PRIMARY_KEY) {
+                        Index catalog_idx = catalog_const.getIndex();
+                        List<ColumnRef> pkCols = CatalogUtil.getSortedCatalogItems(catalog_idx.getColumns(), "index");
+                        // TODO: Support multi-column primary keys
+                        assert(pkCols.size() == 1);
+                        pkFound = true;
+                        properties.put("primaryKeyCol", Integer.toString(pkCols.get(0).getColumn().getIndex()));
+                        break;
+                    }
+                }
+                assert(pkFound);
+            }
+
+            Pair<Properties, Set<String>> connConfig = new Pair<>(properties, streams);
             config.put(targetName, connConfig);
         }
 
@@ -389,9 +432,10 @@ public class ExportManager
         final Cluster cluster = catalogContext.catalog.getClusters().get("cluster");
         final Database db = cluster.getDatabases().get("database");
         final CatalogMap<Connector> connectors = db.getConnectors();
+        final CatalogMap<Table> tables = db.getTables();
 
         Map<String, Pair<Properties, Set<String>>> processorConfigBeforeUpdate = m_processorConfig;
-        updateProcessorConfig(connectors);
+        updateProcessorConfig(connectors, tables);
         if (m_processorConfig.isEmpty() && processorConfigBeforeUpdate.isEmpty()) {
             return;
         }
