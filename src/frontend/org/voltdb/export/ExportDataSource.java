@@ -56,7 +56,6 @@ import org.voltdb.VoltType;
 import org.voltdb.catalog.CatalogMap;
 import org.voltdb.catalog.Column;
 import org.voltdb.client.ClientResponse;
-import org.voltdb.client.ProcedureCallback;
 import org.voltdb.export.AdvertisedDataSource.ExportFormat;
 import org.voltdb.exportclient.ExportClientBase;
 import org.voltdb.types.GeographyPointValue;
@@ -830,13 +829,17 @@ public class ExportDataSource implements Comparable<ExportDataSource> {
     public class NibbleDeletingContainer<E> extends BBContainer {
         final AckingContainer m_ackingCont;
         final String m_nibbleDeleteTableName;
+        final String m_nibbleDeleteColName;
         final StoredProcedureInvocation exportDelete = new StoredProcedureInvocation();
         public final ArrayList<E> m_pkList = new ArrayList<>();
 
         class NibbleDeleteCB implements SimpleClientResponseAdapter.Callback {
             @Override
             public void handleResponse(ClientResponse clientResponse) {
-                if (ClientResponse.SUCCESS != clientResponse.getStatus()) {
+                if (ClientResponse.SUCCESS == clientResponse.getStatus()) {
+                    m_ackingCont.discard();
+                }
+                else {
                     if (ClientResponse.RESPONSE_UNKNOWN == clientResponse.getAppStatus()) {
                         try {
                             m_generation.startNibbleDeleteTransaction(exportDelete, m_partitionId, new NibbleDeleteCB());
@@ -855,10 +858,11 @@ public class ExportDataSource implements Comparable<ExportDataSource> {
 
         };
 
-        public NibbleDeletingContainer(BBContainer cont, String tableName) {
+        public NibbleDeletingContainer(BBContainer cont, String tableName, String colName) {
             super(null);
             m_ackingCont = (AckingContainer)cont;
             m_nibbleDeleteTableName = tableName;
+            m_nibbleDeleteColName = colName;
             exportDelete.setProcName("@NibbleDeleteAfterExportSP");
         }
 
@@ -873,7 +877,7 @@ public class ExportDataSource implements Comparable<ExportDataSource> {
                             exportLog.trace("NibbleDeletingContainer.discard with uso: " + m_ackingCont.m_uso);
                         }
                         try {
-                            exportDelete.setParams(m_nibbleDeleteTableName, m_pkList.toArray());
+                            exportDelete.setParams(m_nibbleDeleteTableName, m_nibbleDeleteColName, m_pkList.toArray());
                             m_generation.startNibbleDeleteTransaction(exportDelete, m_partitionId, new NibbleDeleteCB());
                         } catch (Exception e) {
                             exportLog.error("Error acking export buffer", e);
@@ -895,30 +899,30 @@ public class ExportDataSource implements Comparable<ExportDataSource> {
         }
     }
 
-    public NibbleDeletingContainer<?> createDeleterInvocation(VoltType columnType, BBContainer cont, String tableName) {
+    public NibbleDeletingContainer<?> createDeleterInvocation(VoltType columnType, BBContainer cont, String tableName, String colName) {
         switch (columnType) {
         case TINYINT:
-            return new NibbleDeletingContainer<Byte>(cont, tableName);
+            return new NibbleDeletingContainer<Byte>(cont, tableName, colName);
         case SMALLINT:
-            return new NibbleDeletingContainer<Short>(cont, tableName);
+            return new NibbleDeletingContainer<Short>(cont, tableName, colName);
         case INTEGER:
-            return new NibbleDeletingContainer<Integer>(cont, tableName);
+            return new NibbleDeletingContainer<Integer>(cont, tableName, colName);
         case BIGINT:
-            return new NibbleDeletingContainer<Long>(cont, tableName);
+            return new NibbleDeletingContainer<Long>(cont, tableName, colName);
         case FLOAT:
-            return new NibbleDeletingContainer<Double>(cont, tableName);
+            return new NibbleDeletingContainer<Double>(cont, tableName, colName);
         case TIMESTAMP:
-            return new NibbleDeletingContainer<TimestampType>(cont, tableName);
+            return new NibbleDeletingContainer<TimestampType>(cont, tableName, colName);
         case STRING:
-            return new NibbleDeletingContainer<String>(cont, tableName);
+            return new NibbleDeletingContainer<String>(cont, tableName, colName);
         case VARBINARY:
-            return new NibbleDeletingContainer<Byte>(cont, tableName);
+            return new NibbleDeletingContainer<Byte>(cont, tableName, colName);
         case DECIMAL:
-            return new NibbleDeletingContainer<BigDecimal>(cont, tableName);
+            return new NibbleDeletingContainer<BigDecimal>(cont, tableName, colName);
         case GEOGRAPHY_POINT:
-            return new NibbleDeletingContainer<GeographyPointValue>(cont, tableName);
+            return new NibbleDeletingContainer<GeographyPointValue>(cont, tableName, colName);
         case GEOGRAPHY:
-            return new NibbleDeletingContainer<GeographyValue>(cont, tableName);
+            return new NibbleDeletingContainer<GeographyValue>(cont, tableName, colName);
         default:
             return null;
         }

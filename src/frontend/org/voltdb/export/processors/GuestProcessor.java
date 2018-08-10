@@ -361,7 +361,8 @@ public class GuestProcessor implements ExportDataProcessor {
                                             if (m_nibbleDeletePkCol >= 0) {
                                                 if (ndCont == null) {
                                                     // replace the buffer container with a wrapper that invokes the delete
-                                                    ndCont = source.createDeleterInvocation(row.types.get(m_nibbleDeletePkCol), cont, m_nibbleDeleteTableName);
+                                                    ndCont = source.createDeleterInvocation(row.types.get(m_nibbleDeletePkCol),
+                                                            cont, m_nibbleDeleteTableName, row.names.get(m_nibbleDeletePkCol));
                                                     cont = ndCont;
                                                 }
                                                 ndCont.addPk(row.values[m_nibbleDeletePkCol]);
