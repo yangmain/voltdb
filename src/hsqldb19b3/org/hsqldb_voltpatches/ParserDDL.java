@@ -43,6 +43,7 @@ import org.hsqldb_voltpatches.rights.Grantee;
 import org.hsqldb_voltpatches.rights.GranteeManager;
 import org.hsqldb_voltpatches.rights.Right;
 import org.hsqldb_voltpatches.rights.User;
+import org.hsqldb_voltpatches.types.BooleanType;
 import org.hsqldb_voltpatches.types.Charset;
 import org.hsqldb_voltpatches.types.Type;
 import org.hsqldb_voltpatches.types.UserTypeModifier;
@@ -1087,6 +1088,12 @@ public class ParserDDL extends ParserRoutine {
                 throw unexpectedToken();
             }
             stream = token.tokenString;
+            //add a hidden cloumn
+//            if (!alter) {
+//                ColumnSchema column = new ColumnSchema((HsqlName)(HsqlNameManager.getAutoColumnName("EXPORTED")),
+//                        (Type)(BooleanType.getBooleanType()), false, false, Expression.EXPR_FALSE);
+//                table.addColumn(column);
+//             }
             read();
         }
 

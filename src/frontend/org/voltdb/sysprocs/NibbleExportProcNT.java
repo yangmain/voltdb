@@ -42,7 +42,7 @@ import org.voltdb.catalog.Table;
 import org.voltdb.client.ClientResponse;
 import org.voltdb.client.ClientResponseWithPartitionKey;
 
-public class LowImpactDelete extends VoltNTSystemProcedure {
+public class NibbleExportProcNT extends VoltNTSystemProcedure {
     VoltLogger hostLog = new VoltLogger("HOST");
 
     public static enum ComparisonOperation {
@@ -127,13 +127,14 @@ public class LowImpactDelete extends VoltNTSystemProcedure {
         }
     }
 
-    NibbleStatus runNibbleDeleteOperation(
+    NibbleStatus runNibbleExportOperation(
             String tableName,
             String columnName,
             String comparisonOp,
             Object value,
             long chunksize,
-            boolean isReplicated) {
+            boolean isReplicated,
+            String streamName) {
         long rowsJustDeleted = 0;
         long rowsLeft = 0;
         int ONE = 1;
@@ -143,20 +144,21 @@ public class LowImpactDelete extends VoltNTSystemProcedure {
         parameter.addRow(value);
         if (isReplicated) {
             try {
-                CompletableFuture<ClientResponse> cf = callProcedure("@NibbleDeleteMP", tableName, columnName, comparisonOp, parameter, chunksize);
+                CompletableFuture<ClientResponse> cf = callProcedure("@NibbleExportMP", tableName,
+                        columnName, comparisonOp, parameter, chunksize, streamName);
                 ClientResponse cr;
                 try {
                     cr = cf.get(ONE, TimeUnit.MINUTES);
                 } catch (Exception e) {
                     return new NibbleStatus(-1, rowsJustDeleted, "Received exception while waiting response back "
-                            + "from smart delete system procedure:" + e.getMessage());
+                            + "from nibble export system procedure:" + e.getMessage());
                 }
                 ClientResponseImpl cri = (ClientResponseImpl) cr;
                 switch(cri.getStatus()) {
                 case ClientResponse.SUCCESS:
                     VoltTable result = cri.getResults()[0];
                     result.advanceRow();
-                    rowsJustDeleted = result.getLong("DELETED_ROWS");
+                    rowsJustDeleted = result.getLong("EXPORTED_ROWS");
                     rowsLeft = result.getLong("LEFT_ROWS");
                     break;
                 case ClientResponse.RESPONSE_UNKNOWN:
@@ -172,7 +174,7 @@ public class LowImpactDelete extends VoltNTSystemProcedure {
             // for single partitioned table, run the smart delete everywhere
             CompletableFuture<ClientResponseWithPartitionKey[]> pf = null;
             try {
-                pf = callAllPartitionProcedure("@NibbleDeleteSP", tableName, columnName, comparisonOp, parameter, chunksize);
+                pf = callAllPartitionProcedure("@NibbleExportSP", tableName, columnName, comparisonOp, parameter, chunksize, streamName);
             } catch (Exception e) {
                 return new NibbleStatus(rowsLeft, rowsJustDeleted, e.getMessage());
             }
@@ -181,7 +183,7 @@ public class LowImpactDelete extends VoltNTSystemProcedure {
                 crs = pf.get(ONE, TimeUnit.MINUTES);
             } catch (Exception e) {
                 return new NibbleStatus(-1, rowsJustDeleted, "Received exception while waiting response back "
-                        + "from smart delete system procedure:" + e.getMessage());
+                        + "from nibble export system procedure:" + e.getMessage());
             }
 
             for (ClientResponseWithPartitionKey crwp : crs) {
@@ -190,7 +192,7 @@ public class LowImpactDelete extends VoltNTSystemProcedure {
                 case ClientResponse.SUCCESS:
                     VoltTable result = cri.getResults()[0];
                     result.advanceRow();
-                    rowsJustDeleted += result.getLong("DELETED_ROWS");
+                    rowsJustDeleted += result.getLong("EXPORTED_ROWS");
                     rowsLeft += result.getLong("LEFT_ROWS");
                     break;
                 case ClientResponse.RESPONSE_UNKNOWN:
@@ -204,12 +206,13 @@ public class LowImpactDelete extends VoltNTSystemProcedure {
         return new NibbleStatus(rowsLeft, rowsJustDeleted, "");
     }
 
-    public VoltTable run(String tableName, String columnName, String valueStr, String comparisonOp, long chunksize, long timeoutms, long maxFrequency, long interval) {
+    public VoltTable run(String tableName, String columnName, String valueStr, String comparisonOp,
+            long chunksize, long timeoutms, long maxFrequency, long interval, String streamName) {
 
-        VoltTable returnTable = new VoltTable(new ColumnInfo("ROWS_DELETED", VoltType.BIGINT),
+        VoltTable returnTable = new VoltTable(new ColumnInfo("ROWS_EXPORTED", VoltType.BIGINT),
                                 new ColumnInfo("ROWS_LEFT", VoltType.BIGINT),
-                                new ColumnInfo("DELETED_LAST_ROUND", VoltType.BIGINT),
-                                new ColumnInfo("LAST_DELETE_TIMESTAMP", VoltType.BIGINT),
+                                new ColumnInfo("EXPORTED_LAST_ROUND", VoltType.BIGINT),
+                                new ColumnInfo("LAST_EXPORT_TIMESTAMP", VoltType.BIGINT),
                                 new ColumnInfo("STATUS", VoltType.BIGINT),
                                 new ColumnInfo("MESSAGE", VoltType.STRING));
 
@@ -222,7 +225,8 @@ public class LowImpactDelete extends VoltNTSystemProcedure {
         Object value = getValidatedValue(colType, valueStr);
 
         // always run nibble delete at least once
-        NibbleStatus status = runNibbleDeleteOperation(tableName, columnName, comparisonOp, value, chunksize, catTable.getIsreplicated());
+        NibbleStatus status = runNibbleExportOperation(tableName, columnName, comparisonOp,
+                value, chunksize, catTable.getIsreplicated(), streamName);
         long rowsLeft = status.rowsLeft;
         // If any partition receive failure, report the delete status plus the error message back.
         if (!status.errorMessages.isEmpty()) {
@@ -230,7 +234,6 @@ public class LowImpactDelete extends VoltNTSystemProcedure {
                     ClientResponse.GRACEFUL_FAILURE, status.errorMessages);
             return returnTable;
         }
-
         // handle the case where we're jammed from the start (no rows deleted)
         if (status.rowsJustDeleted == 0 && status.rowsLeft > 0) {
             throw new VoltAbortException(String.format(
@@ -261,7 +264,8 @@ public class LowImpactDelete extends VoltNTSystemProcedure {
             }
             @Override
             public void run() {
-                NibbleStatus thisStatus = runNibbleDeleteOperation(tableName, columnName, comparisonOp, value, chunksize, catTable.getIsreplicated());
+                NibbleStatus thisStatus = runNibbleExportOperation(tableName, columnName, comparisonOp,
+                        value, chunksize, catTable.getIsreplicated(), streamName);
                 if (!thisStatus.errorMessages.isEmpty()) {
                     errors[attempt-1] = thisStatus.errorMessages;
                     success.set(false);
@@ -276,7 +280,7 @@ public class LowImpactDelete extends VoltNTSystemProcedure {
             }
         }
         if (hostLog.isDebugEnabled()) {
-            hostLog.debug("ttl attempts left in this round:" + attemptsLeft + " on table " + tableName);
+            hostLog.debug("Nibble export attempts left in this round:" + attemptsLeft + " on table " + tableName);
         }
         status.rowsLeft = 0;
         status.rowsJustDeleted = 0;
@@ -289,13 +293,14 @@ public class LowImpactDelete extends VoltNTSystemProcedure {
         try {
             latch.await(timeoutms, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
-            hostLog.warn("TTL interrupted" + e.getMessage());
+            hostLog.warn("Nibble export interrupted" + e.getMessage());
         } finally {
             es.shutdownNow();
         }
 
         returnTable.addRow(status.rowsDeleted, status.rowsLeft, status.rowsJustDeleted, System.currentTimeMillis(),
-                success.get() ? ClientResponse.SUCCESS : ClientResponse.GRACEFUL_FAILURE, Arrays.toString(errors));
+                success.get() ? ClientResponse.SUCCESS : ClientResponse.GRACEFUL_FAILURE,
+                success.get() ? "" : Arrays.toString(errors));
         return returnTable;
     }
 }

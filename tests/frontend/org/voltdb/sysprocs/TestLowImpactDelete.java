@@ -71,6 +71,16 @@ public class TestLowImpactDelete extends TestCase {
               + "PARTITION TABLE ttl ON COLUMN id;"
               + "CREATE INDEX ttlindex ON ttl (ts);"
 
+              + "CREATE TABLE nibbleExport (\n"
+              + "    id BIGINT not null, \n"
+              + "    ts TIMESTAMP not null, "
+              + "    exported SMALLINT default 0, "
+              + "    PRIMARY KEY (id) \n"
+              + " ) USING TTL 10 SECONDS ON COLUMN TS BATCH_SIZE 10 STREAM exportData; \n"
+              + "PARTITION TABLE nibbleExport ON COLUMN id;"
+              + "CREATE INDEX nibbleExportindex ON nibbleExport (ts, exported);"
+              + "CREATE STREAM exportData EXPORT TO TARGET default ( id BIGINT not null , ts TIMESTAMP not null);"
+
               + "CREATE TABLE rep (\n"
               + "    id BIGINT not null, \n"
               + "    ts TIMESTAMP, \n"
@@ -338,6 +348,38 @@ public class TestLowImpactDelete extends TestCase {
             System.out.println(vt.toFormattedString());
             vt = m_client.callProcedure("@AdHoc", "select count(*) from TTL").getResults()[0];
             assertEquals(0, vt.asScalarLong());
+        } catch (Exception e) {
+            fail("Failed to get row count from Table ttl:" + e.getMessage());
+        }
+    }
+
+    @Test
+    public void testNibbleExport() throws InterruptedException {
+        //load 200 rows
+        for (int i = 0; i < 200; i++) {
+            try {
+                m_client.callProcedure("@AdHoc", "INSERT INTO nibbleExport(id, ts) VALUES(" + i + ",CURRENT_TIMESTAMP())");
+            } catch (IOException | ProcCallException e) {
+                fail("fail to insert data for TTL testing.");
+            }
+        }
+        //allow TTL to work, the inserted rows should be deleted after 10 seconds
+        try {
+            System.out.println("inserted 200 rows.");
+            Thread.sleep(60*1000);
+            VoltTable vt = m_client.callProcedure("@AdHoc", "select count(*) from nibbleExport where EXPORTED=1").getResults()[0];
+            assertEquals(200, vt.asScalarLong());
+
+            for (int i = 200; i < 500; i++) {
+                try {
+                    m_client.callProcedure("@AdHoc", "INSERT INTO nibbleExport(id,ts) VALUES(" + i + ",CURRENT_TIMESTAMP())");
+                } catch (IOException | ProcCallException e) {
+                    fail("fail to insert data for TTL testing.");
+                }
+            }
+            Thread.sleep(60*1000);
+            vt = m_client.callProcedure("@AdHoc", "select count(*) from nibbleExport where EXPORTED=1").getResults()[0];
+            assertEquals(500, vt.asScalarLong());
         } catch (Exception e) {
             fail("Failed to get row count from Table ttl:" + e.getMessage());
         }

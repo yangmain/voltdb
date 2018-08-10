@@ -188,6 +188,12 @@ public interface SiteProcedureConnection {
                                                      Column column,
                                                      ComparisonOperation op);
 
+    public ProcedureRunner getNibbleExportProcRunner(String procedureName,
+            Table table,
+            Column column,
+            ComparisonOperation op,
+            Table stream);
+
     /**
      * @return SystemProcedureExecutionContext
      */

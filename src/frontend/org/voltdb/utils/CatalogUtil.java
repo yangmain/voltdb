@@ -35,6 +35,7 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -3112,5 +3113,17 @@ public abstract class CatalogUtil {
             }
         }
         return false;
+    }
+
+    public static String getSortedColumnNames(Table table, List<String> exclusions) {
+        List<String> columnNames = new ArrayList<String>();
+        for (Column column : table.getColumns()) {
+            if (exclusions != null && exclusions.contains(column.getTypeName())) {
+                continue;
+            }
+            columnNames.add(column.getTypeName());
+        }
+        Collections.sort(columnNames);
+        return String.join(",", columnNames);
     }
 }

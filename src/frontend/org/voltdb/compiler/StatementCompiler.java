@@ -19,6 +19,10 @@ package org.voltdb.compiler;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -665,7 +669,6 @@ public abstract class StatementCompiler {
             ComparisonOperation comparison) {
         StringBuilder sb = new StringBuilder();
         sb.append("SELECT " + column.getName() + " FROM " + table.getTypeName());
-//        sb.append(" WHERE " + column.getName() + " " + comparison.toString() + " ?");
         sb.append(" ORDER BY " + column.getName());
         if (comparison == ComparisonOperation.LTE || comparison == ComparisonOperation.LT) {
             sb.append(" ASC OFFSET ? LIMIT 1;");
@@ -807,6 +810,80 @@ public abstract class StatementCompiler {
         String valueAtQuery = genValueAtOffsetSqlForNibbleDelete(catTable, col, comp);
         addStatement(catTable, newCatProc, valueAtQuery, "2");
 
+        return newCatProc;
+    }
+
+
+    private static String genSelectCountSqlForNibbleExport(Table table, Column column,
+            ComparisonOperation comparison) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("SELECT COUNT(*) FROM " + table.getTypeName());
+        sb.append(" WHERE " + column.getName() + " " + comparison.toString() + " ?;");
+        return sb.toString();
+    }
+
+    private static String genSelectSqlForNibbleExport(Table table, Column column,
+            ComparisonOperation comparison, String hiddenColumn) {
+        StringBuilder sb = new StringBuilder();
+        List<String> exclusions = new ArrayList<>();
+        exclusions.add(hiddenColumn);
+        String fromColumns = CatalogUtil.getSortedColumnNames(table, exclusions);
+        sb.append("SELECT " + fromColumns + " FROM " + table.getTypeName());
+        sb.append(" WHERE " + column.getName() + " " + comparison.toString() + " ? AND " + hiddenColumn + " = 0;");
+        return sb.toString();
+    }
+
+    private static String genUpdateSqlForNibbleExport(Table table, String hiddenColumn) {
+        Collection<Column> keys = CatalogUtil.getPrimaryKeyColumns(table);
+        if (keys.isEmpty()) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("UPDATE " + table.getTypeName());
+        sb.append(" SET " + hiddenColumn + "=1 WHERE " + keys.iterator().next().getName() + "=?;");
+        return sb.toString();
+    }
+
+    private static String genInsertSqlForNibbleExport(Table streamTable) {
+        StringBuilder sb = new StringBuilder();
+        List<String> exclusions = new ArrayList<>();
+        String fromColumns = CatalogUtil.getSortedColumnNames(streamTable, exclusions);
+        sb.append("INSERT INTO " + streamTable.getTypeName());
+        sb.append(" (" + fromColumns + ") VALUES (");
+        String[] questions = new String[streamTable.getColumns().size()];
+        Arrays.fill(questions, "?");
+        sb.append(String.join(",", questions) + ");");
+        return sb.toString();
+    }
+
+    private static String genValueAtOffsetSqlForNibbleExport(Table table, Column column,
+            ComparisonOperation comparison) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("SELECT " + column.getName() + " FROM " + table.getTypeName());
+        sb.append(" WHERE EXPORTED=0 ORDER BY " + column.getName());
+        if (comparison == ComparisonOperation.LTE || comparison == ComparisonOperation.LT) {
+            sb.append(" ASC OFFSET ? LIMIT 1;");
+        } else {
+            sb.append(" DESC OFFSET ? LIMIT 1;");
+        }
+        return sb.toString();
+    }
+
+    public static Procedure compileNibbleExportProcedure(Table catTable, String procName,
+            Column col, ComparisonOperation comp, Table streamTable) {
+        final String hiddenColumn = "EXPORTED";
+        Procedure newCatProc = addProcedure(catTable, procName);
+
+        String countingQuery = genSelectCountSqlForNibbleExport(catTable, col, comp);
+        addStatement(catTable, newCatProc, countingQuery, "0");
+        String selectQuery = genSelectSqlForNibbleExport(catTable, col, comp, hiddenColumn);
+        addStatement(catTable, newCatProc, selectQuery, "1");
+        String insertQuery = genInsertSqlForNibbleExport(streamTable);
+        addStatement(streamTable, newCatProc, insertQuery, "2");
+        String updateQuery = genUpdateSqlForNibbleExport(catTable, hiddenColumn);
+        addStatement(catTable, newCatProc, updateQuery, "3");
+        String valueAtQuery = genValueAtOffsetSqlForNibbleExport(catTable, col, comp);
+        addStatement(catTable, newCatProc, valueAtQuery, "4");
         return newCatProc;
     }
 }

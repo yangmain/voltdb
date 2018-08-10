@@ -100,7 +100,12 @@ public class TTLManager extends StatsSource{
             }
             ClientInterface cl = voltdb.getClientInterface();
             if (!canceled.get() && cl != null && cl.isAcceptingConnections()) {
-                performDelete(cl, this);
+                String stream = ttlRef.get().getStream();
+                if (stream != null && !"".equals(stream)) {
+                    performExport(cl, this);
+                } else {
+                    performDelete(cl, this);
+                }
             }
         }
 
@@ -149,6 +154,10 @@ public class TTLManager extends StatsSource{
         }
         String getColumnName() {
             return ttlRef.get().getTtlcolumn().getName();
+        }
+
+        String getStream() {
+            return ttlRef.get().getStream();
         }
     }
 
@@ -307,6 +316,31 @@ public class TTLManager extends StatsSource{
         }
     }
 
+    protected void performExport(ClientInterface cl, TTLTask task) {
+        CountDownLatch latch = new CountDownLatch(1);
+        final ProcedureCallback cb = new ProcedureCallback() {
+            @Override
+            public void clientCallback(ClientResponse resp) throws Exception {
+                if (resp.getStatus() != ClientResponse.SUCCESS) {
+                    hostLog.warn(String.format("Fail to execute nibble export on table: %s, column: %s, status: %s",
+                            task.tableName, task.getColumnName(), resp.getStatusString()));
+                }
+                if (resp.getResults() != null && resp.getResults().length > 0) {
+
+                }
+                latch.countDown();
+            }
+        };
+        cl.getDispatcher().getInternelAdapterNT().callProcedure(cl.getInternalUser(), true, 1000 * 120, cb,
+                "@NibbleExportProcNT", new Object[] {task.tableName, task.getColumnName(), task.getValue(), "<=", task.getBatchSize(),
+                        TIMEOUT, task.getMaxFrequency(), INTERVAL, task.getStream()});
+        try {
+            latch.await(1, TimeUnit.MINUTES);
+        } catch (InterruptedException e) {
+            hostLog.warn("Nibble export waiting interrupted" + e.getMessage());
+        }
+    }
+
     protected void performDelete(ClientInterface cl, TTLTask task) {
         CountDownLatch latch = new CountDownLatch(1);
         final ProcedureCallback cb = new ProcedureCallback() {
@@ -343,7 +377,7 @@ public class TTLManager extends StatsSource{
             }
         };
         cl.getDispatcher().getInternelAdapterNT().callProcedure(cl.getInternalUser(), true, 1000 * 120, cb,
-                "@LowImpactDelete", new Object[] {task.tableName, task.getColumnName(), task.getValue(), "<", task.getBatchSize(),
+                "@LowImpactDelete", new Object[] {task.tableName, task.getColumnName(), task.getValue(), "<=", task.getBatchSize(),
                         TIMEOUT, task.getMaxFrequency(), INTERVAL});
         try {
             latch.await(1, TimeUnit.MINUTES);

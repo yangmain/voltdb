@@ -1552,6 +1552,17 @@ public class Site implements Runnable, SiteProcedureConnection, SiteSnapshotConn
                     procedureName, catTable, column, op);
     }
 
+    @Override
+    public ProcedureRunner getNibbleExportProcRunner(String procedureName,
+                                                     Table catTable,
+                                                     Column column,
+                                                     ComparisonOperation op,
+                                                     Table stream)
+    {
+        return m_loadedProcedures.getNibbleExportProc(
+                    procedureName, catTable, column, op, stream);
+    }
+
     /**
      * Update the catalog.  If we're the MPI, don't bother with the EE.
      */
