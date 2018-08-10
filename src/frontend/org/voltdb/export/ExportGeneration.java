@@ -140,7 +140,7 @@ public class ExportGeneration implements Generation {
         m_ci = clientInterface;
         m_adapter = new SimpleClientResponseAdapter(ClientInterface.EXPORT_NIBBLE_DELETE_CID,
                                                     "ExportNibbleDeleteAdapter");
-        m_ci.bindAdapter(m_adapter, null);
+//        m_ci.bindAdapter(m_adapter, null);
     }
 
     List<Integer> initializeGenerationFromDisk(HostMessenger messenger) {

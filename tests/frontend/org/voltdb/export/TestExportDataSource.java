@@ -127,6 +127,12 @@ public class TestExportDataSource extends TestCase {
         public Map<Integer, Map<String, ExportDataSource>> getDataSourceByPartition() {
             throw new UnsupportedOperationException("Not supported yet.");
         }
+
+        @Override
+        public void createDeleteTransaction() {
+            // TODO Auto-generated method stub
+
+        }
     }
 
     @Override

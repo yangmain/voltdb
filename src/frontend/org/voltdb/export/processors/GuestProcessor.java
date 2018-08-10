@@ -362,6 +362,7 @@ public class GuestProcessor implements ExportDataProcessor {
                                                     cont = source.new NibbleDeletingContainer(cont, nibbleDeletePrimaryKeys);
                                                 }
                                                 nibbleDeletePrimaryKeys.add(row.values[m_nibbleDeletePkCol]);
+                                                System.out.println("------" + nibbleDeletePrimaryKeys);
                                             }
                                             edb.setPreviousRow(row);
                                         } catch (IOException ioe) {
