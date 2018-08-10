@@ -76,7 +76,7 @@ public class TestLowImpactDelete extends TestCase {
               + "    ts TIMESTAMP not null, "
               + "    exported SMALLINT default 0, "
               + "    PRIMARY KEY (id) \n"
-              + " ) USING TTL 10 SECONDS ON COLUMN TS BATCH_SIZE 10 STREAM exportData; \n"
+              + " ) USING TTL 10 SECONDS ON COLUMN TS BATCH_SIZE 10 MAX_FREQUENCY 3 STREAM exportData; \n"
               + "PARTITION TABLE nibbleExport ON COLUMN id;"
               + "CREATE INDEX nibbleExportindex ON nibbleExport (ts, exported);"
               + "CREATE STREAM exportData EXPORT TO TARGET default ( id BIGINT not null , ts TIMESTAMP not null);"
