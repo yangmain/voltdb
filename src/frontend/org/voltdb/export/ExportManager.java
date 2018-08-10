@@ -379,6 +379,7 @@ public class ExportManager
                         assert(pkCols.size() == 1);
                         pkFound = true;
                         properties.put("primaryKeyCol", Integer.toString(pkCols.get(0).getColumn().getIndex()));
+                        properties.put("nibbleSourceTable", t.getTypeName());
                         break;
                     }
                 }
