@@ -645,6 +645,15 @@ public class MpRoSite implements Runnable, SiteProcedureConnection
                     procedureName, catTable, column, op, stream);
     }
 
+    @Override
+    public ProcedureRunner getNibbleExportDeleteProcRunner(String procedureName,
+                                                     Table catTable,
+                                                     Column column)
+    {
+        return m_loadedProcedures.getNibbleExportDeleteProc(
+                    procedureName, catTable, column);
+    }
+
     /**
      * Update the catalog.  If we're the MPI, don't bother with the EE.
      */

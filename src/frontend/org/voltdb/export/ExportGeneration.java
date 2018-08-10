@@ -780,6 +780,6 @@ public class ExportGeneration implements Generation {
     }
 
     public void createDeleteTransaction() {
-        m_ci.createTransaction(m_adapter.connectionId(), invocation, isReadOnly, isSinglePartition, isEveryPartition, partition, messageSize, nowNanos);
+//        m_ci.createTransaction(m_adapter.connectionId(), invocation, isReadOnly, isSinglePartition, isEveryPartition, partition, messageSize, nowNanos);
     }
 }

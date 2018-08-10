@@ -869,6 +869,15 @@ public abstract class StatementCompiler {
         return sb.toString();
     }
 
+
+    private static String genDeleteSqlForNibbleExport(Table table, Column column) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("DELETE FROM " + table.getTypeName());
+        sb.append(" WHERE " + column.getName() + " = ?;");
+        return sb.toString();
+    }
+
+
     public static Procedure compileNibbleExportProcedure(Table catTable, String procName,
             Column col, ComparisonOperation comp, Table streamTable) {
         final String hiddenColumn = "EXPORTED";
@@ -884,6 +893,14 @@ public abstract class StatementCompiler {
         addStatement(catTable, newCatProc, updateQuery, "3");
         String valueAtQuery = genValueAtOffsetSqlForNibbleExport(catTable, col, comp);
         addStatement(catTable, newCatProc, valueAtQuery, "4");
+        return newCatProc;
+    }
+
+    public static Procedure compileNibbleExportDeleteProcedure(Table catTable, String procName, Column col) {
+        Procedure newCatProc = addProcedure(catTable, procName);
+
+        String deleteQuery = genDeleteSqlForNibbleExport(catTable, col);
+        addStatement(catTable, newCatProc, deleteQuery, "0");
         return newCatProc;
     }
 }

@@ -327,4 +327,29 @@ public class LoadedProcedureSet {
         }
         return pr;
     }
+
+    /**
+     * (TableName).nibbleExportDelete is cached in default procedure cache.
+     * @param tableName
+     * @return
+     */
+    public ProcedureRunner getNibbleExportDeleteProc(String procName,
+                                               Table catTable,
+                                               Column column)
+    {
+        ProcedureRunner pr = m_defaultProcCache.get(procName);
+        if (pr == null) {
+            Procedure newCatProc =
+                    StatementCompiler.compileNibbleExportDeleteProcedure(
+                            catTable, procName, column);
+            VoltProcedure voltProc = new ProcedureRunner.StmtProcedure();
+            pr = new ProcedureRunner(voltProc, m_site, newCatProc);
+            // this will ensure any created fragment tasks know to load the plans
+            // for this plan-on-the-fly procedure
+            pr.setProcNameToLoadForFragmentTasks(newCatProc.getTypeName());
+            m_defaultProcCache.put(procName, pr);
+        }
+        return pr;
+    }
+
 }

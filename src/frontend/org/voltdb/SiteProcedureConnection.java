@@ -194,6 +194,9 @@ public interface SiteProcedureConnection {
             ComparisonOperation op,
             Table stream);
 
+    public ProcedureRunner getNibbleExportDeleteProcRunner(String procedureName,
+            Table table, Column col);
+
     /**
      * @return SystemProcedureExecutionContext
      */

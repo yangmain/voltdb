@@ -1563,6 +1563,16 @@ public class Site implements Runnable, SiteProcedureConnection, SiteSnapshotConn
                     procedureName, catTable, column, op, stream);
     }
 
+    @Override
+    public ProcedureRunner getNibbleExportDeleteProcRunner(String procedureName,
+                                                           Table catTable,
+                                                           Column col)
+    {
+        return m_loadedProcedures.getNibbleExportDeleteProc(
+                    procedureName, catTable, col);
+    }
+
+
     /**
      * Update the catalog.  If we're the MPI, don't bother with the EE.
      */
