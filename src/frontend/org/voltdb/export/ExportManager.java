@@ -326,12 +326,11 @@ public class ExportManager
             CatalogMap<TimeToLive> ttls = t.getTimetolive();
             if (ttls != null && !ttls.isEmpty()) {
                 TimeToLive ttl = ttls.iterator().next();
-                if (ttl.getStream() != null) {
-                    ttlExportTables.put(t.getTypeName(), t);
+                if (!ttl.getStream().isEmpty()) {
+                    ttlExportTables.put(ttl.getStream(), t);
                 }
             }
         }
-
         // If the export source changes before the previous generation drains
         // then the outstanding exports will go to the new source when export resumes.
         int connCount = 0;
@@ -352,7 +351,6 @@ public class ExportManager
                 streams.add(ti.getTable().getTypeName());
                 tableCount++;
             }
-
             if (conn.getConfig() != null) {
                 Iterator<ConnectorProperty> connPropIt = conn.getConfig().iterator();
                 while (connPropIt.hasNext()) {
