@@ -40,6 +40,7 @@ import org.voltdb.export.AdvertisedDataSource;
 import org.voltdb.export.ExportDataProcessor;
 import org.voltdb.export.ExportDataSource;
 import org.voltdb.export.ExportGeneration;
+import org.voltdb.export.ExportDataSource.NibbleDeletingContainer;
 import org.voltdb.exportclient.ExportClientBase;
 import org.voltdb.exportclient.ExportDecoderBase;
 import org.voltdb.exportclient.ExportDecoderBase.RestartBlockException;
@@ -60,6 +61,7 @@ public class GuestProcessor implements ExportDataProcessor {
     private Map<String, ExportClientBase> m_clientsByTarget = new HashMap<>();
     private Map<String, String> m_targetsByTableName = new HashMap<>();
     // Having this set to a negative number implies that this is not a nibble export stream
+    private String m_nibbleDeleteTableName = null;
     private int m_nibbleDeletePkCol = -1;
 
     private final List<Pair<ExportDecoderBase, AdvertisedDataSource>> m_decoders = new ArrayList<Pair<ExportDecoderBase, AdvertisedDataSource>>();
@@ -92,6 +94,7 @@ public class GuestProcessor implements ExportDataProcessor {
             }
 
             String exportClientClass = properties.getProperty(EXPORT_TO_TYPE);
+            m_nibbleDeleteTableName = properties.getProperty("nibbleSourceTable", null);
             m_nibbleDeletePkCol = Integer.parseInt(properties.getProperty("primaryKeyCol", "-1"));
             Preconditions.checkNotNull(exportClientClass, "export to type is undefined or custom export plugin class missing.");
 
@@ -327,7 +330,7 @@ public class GuestProcessor implements ExportDataProcessor {
                     try {
                         //Position to restart at on error
                         final int startPosition = cont.b().position();
-                        ArrayList<Object> nibbleDeletePrimaryKeys = null;
+                        NibbleDeletingContainer<?> ndCont = null;
 
                         //Track the amount of backoff to use next time, will be updated on repeated failure
                         int backoffQuantity = 10 + (int)(10 * ThreadLocalRandom.current().nextDouble());
@@ -356,12 +359,12 @@ public class GuestProcessor implements ExportDataProcessor {
                                         try {
                                             row = ExportRow.decodeRow(edb.getPreviousRow(), source.getPartitionId(), m_startTS, rowdata);
                                             if (m_nibbleDeletePkCol >= 0) {
-                                                if (nibbleDeletePrimaryKeys == null) {
-                                                    nibbleDeletePrimaryKeys = new ArrayList<>();
+                                                if (ndCont == null) {
                                                     // replace the buffer container with a wrapper that invokes the delete
-                                                    cont = source.new NibbleDeletingContainer(cont, nibbleDeletePrimaryKeys);
+                                                    ndCont = source.createDeleterInvocation(row.types.get(m_nibbleDeletePkCol), cont, m_nibbleDeleteTableName);
+                                                    cont = ndCont;
                                                 }
-                                                nibbleDeletePrimaryKeys.add(row.values[m_nibbleDeletePkCol]);
+                                                ndCont.addPk(row.values[m_nibbleDeletePkCol]);
                                             }
                                             edb.setPreviousRow(row);
                                         } catch (IOException ioe) {

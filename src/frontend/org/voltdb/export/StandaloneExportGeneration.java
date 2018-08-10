@@ -29,6 +29,8 @@ import java.util.Set;
 import org.voltcore.logging.VoltLogger;
 import org.voltcore.messaging.HostMessenger;
 import org.voltcore.utils.DBBPool;
+import org.voltdb.SimpleClientResponseAdapter.Callback;
+import org.voltdb.StoredProcedureInvocation;
 import org.voltdb.utils.VoltFile;
 
 import com.google_voltpatches.common.base.Throwables;
@@ -300,8 +302,6 @@ public class StandaloneExportGeneration implements Generation {
     }
 
     @Override
-    public void createDeleteTransaction() {
-        //  Auto-generated method stub
-
+    public void startNibbleDeleteTransaction(StoredProcedureInvocation spi, int partition, Callback cb) {
     }
 }

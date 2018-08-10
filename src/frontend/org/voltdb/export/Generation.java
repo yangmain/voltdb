@@ -20,6 +20,8 @@ import java.nio.ByteBuffer;
 import java.util.Map;
 
 import org.voltcore.messaging.HostMessenger;
+import org.voltdb.SimpleClientResponseAdapter.Callback;
+import org.voltdb.StoredProcedureInvocation;
 
 /**
  * Export data from a single catalog version and database instance.
@@ -39,5 +41,5 @@ public interface Generation {
 
     public Map<Integer, Map<String, ExportDataSource>> getDataSourceByPartition();
 
-    public void createDeleteTransaction();
+    public void startNibbleDeleteTransaction(StoredProcedureInvocation spi, int partition, Callback cb);
 }

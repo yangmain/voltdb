@@ -45,8 +45,10 @@ import org.voltcore.zk.ZKUtil;
 import org.voltdb.CatalogContext;
 import org.voltdb.ClientInterface;
 import org.voltdb.SimpleClientResponseAdapter;
+import org.voltdb.StoredProcedureInvocation;
 import org.voltdb.VoltDB;
 import org.voltdb.VoltZK;
+import org.voltdb.SimpleClientResponseAdapter.Callback;
 import org.voltdb.catalog.CatalogMap;
 import org.voltdb.catalog.Connector;
 import org.voltdb.catalog.ConnectorTableInfo;
@@ -118,7 +120,6 @@ public class ExportGeneration implements Generation {
 
     void initialize(HostMessenger messenger,
             int hostId,
-            ClientInterface clientInterface,
             CatalogContext catalogContext,
             final CatalogMap<Connector> connectors,
             List<Integer> partitions,
@@ -136,7 +137,9 @@ public class ExportGeneration implements Generation {
 
         // One export mailbox per node, since we only keep one generation
         createAckMailboxesIfNeeded(messenger, allLocalPartitions);
+    }
 
+    void clientInterfaceStarted(ClientInterface clientInterface) {
         m_ci = clientInterface;
         m_adapter = new SimpleClientResponseAdapter(ClientInterface.EXPORT_NIBBLE_DELETE_CID,
                                                     "ExportNibbleDeleteAdapter");
@@ -779,7 +782,11 @@ public class ExportGeneration implements Generation {
         return "Export Generation";
     }
 
-    public void createDeleteTransaction() {
-//        m_ci.createTransaction(m_adapter.connectionId(), invocation, isReadOnly, isSinglePartition, isEveryPartition, partition, messageSize, nowNanos);
+    public void startNibbleDeleteTransaction(StoredProcedureInvocation spi, int partition, Callback cb) {
+        Long handle = m_adapter.registerCallback(cb);
+        spi.setClientHandle(handle);
+
+        m_ci.createTransaction(m_adapter.connectionId(), spi, false, true, false, partition, spi.getSerializedSize(),
+                System.nanoTime());
     }
 }

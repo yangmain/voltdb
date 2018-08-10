@@ -1384,6 +1384,8 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback, HostM
                         adminIntf,
                         config.m_adminPort,
                         m_config.m_sslExternal ? m_config.m_sslContext : null);
+                // Notify Export Subsystem of clientInterface so it can register an adaptor for NibbleExportDelete
+                ExportManager.clientInterfaceStarted(m_clientInterface);
             } catch (Exception e) {
                 VoltDB.crashLocalVoltDB(e.getMessage(), true, e);
             }

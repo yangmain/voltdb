@@ -53,6 +53,8 @@ import org.voltcore.utils.CoreUtils;
 import org.voltcore.utils.DBBPool.BBContainer;
 import org.voltcore.utils.Pair;
 import org.voltdb.MockVoltDB;
+import org.voltdb.SimpleClientResponseAdapter.Callback;
+import org.voltdb.StoredProcedureInvocation;
 import org.voltdb.VoltDB;
 import org.voltdb.VoltType;
 import org.voltdb.catalog.Table;
@@ -129,9 +131,7 @@ public class TestExportDataSource extends TestCase {
         }
 
         @Override
-        public void createDeleteTransaction() {
-            // TODO Auto-generated method stub
-
+        public void startNibbleDeleteTransaction(StoredProcedureInvocation spi, int partition, Callback cb) {
         }
     }
 

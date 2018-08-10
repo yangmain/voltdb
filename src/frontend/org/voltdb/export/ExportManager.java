@@ -88,8 +88,6 @@ public class ExportManager
 
     private final HostMessenger m_messenger;
 
-    private final ClientInterface m_ci;
-
     /**
      * Set of partition ids for which this export manager instance is master of
      */
@@ -152,11 +150,10 @@ public class ExportManager
             boolean isRejoin,
             boolean forceCreate,
             HostMessenger messenger,
-            List<Integer> partitions,
-            ClientInterface ci)
+            List<Integer> partitions)
             throws ExportManager.SetupException
     {
-        ExportManager em = new ExportManager(myHostId, catalogContext, messenger, ci);
+        ExportManager em = new ExportManager(myHostId, catalogContext, messenger);
         if (forceCreate) {
             em.clearOverflowData();
         }
@@ -253,7 +250,6 @@ public class ExportManager
     protected ExportManager() {
         m_hostId = 0;
         m_messenger = null;
-        m_ci = null;
     }
 
     /**
@@ -262,13 +258,11 @@ public class ExportManager
     private ExportManager(
             int myHostId,
             CatalogContext catalogContext,
-            HostMessenger messenger,
-            ClientInterface ci)
+            HostMessenger messenger)
     throws ExportManager.SetupException
     {
         m_hostId = myHostId;
         m_messenger = messenger;
-        m_ci = ci;
 
         CatalogMap<Connector> connectors = getConnectors(catalogContext);
         CatalogMap<Table> tables = getTables(catalogContext);
@@ -417,7 +411,7 @@ public class ExportManager
 
             File exportOverflowDirectory = new File(VoltDB.instance().getExportOverflowPath());
             ExportGeneration generation = new ExportGeneration(exportOverflowDirectory);
-            generation.initialize(m_messenger, m_hostId, m_ci, catalogContext, connectors, partitions, exportOverflowDirectory);
+            generation.initialize(m_messenger, m_hostId, catalogContext, connectors, partitions, exportOverflowDirectory);
 
             m_generation.set(generation);
             newProcessor.setExportGeneration(generation);
@@ -430,6 +424,10 @@ public class ExportManager
         catch (final Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    public static synchronized void clientInterfaceStarted(ClientInterface clientInterface) {
+        m_self.m_generation.get().clientInterfaceStarted(clientInterface);
     }
 
     public synchronized void updateCatalog(CatalogContext catalogContext, boolean requireCatalogDiffCmdsApplyToEE,
