@@ -97,12 +97,14 @@ public class MpTransactionTaskQueue extends TransactionTaskQueue
     // faking an unsuccessful FragmentResponseMessage.
     synchronized void repair(SiteTasker task, List<Long> masters, Map<Integer, Long> partitionMasters, boolean balanceSPI)
     {
+        if (!((MpRepairTask)task).isLeaderPromotionComplete()) {
+            return;
+        }
         // We know that every Site assigned to the MPI (either the main writer or
         // any of the MP read pool) will only have one active transaction at a time,
         // and that we either have active reads or active writes, but never both.
         // Figure out which we're doing, and then poison all of the appropriate sites.
         Map<Long, TransactionTask> currentSet;
-        boolean readonly = true;
         if (!m_currentReads.isEmpty()) {
             assert(m_currentWrites.isEmpty());
             if (tmLog.isDebugEnabled()) {
@@ -119,7 +121,6 @@ public class MpTransactionTaskQueue extends TransactionTaskQueue
             }
             m_taskQueue.offer(task);
             currentSet = m_currentWrites;
-            readonly = false;
         }
         for (Entry<Long, TransactionTask> e : currentSet.entrySet()) {
             if (e.getValue() instanceof MpProcedureTask) {

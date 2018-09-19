@@ -107,4 +107,8 @@ public class MpRepairTask extends SiteTasker
     {
         throw new RuntimeException("Rejoin while repairing the MPI should be impossible.");
     }
+
+    public boolean isLeaderPromotionComplete() {
+        return m_partitionLeaderPromotionComplete;
+    }
 }
