@@ -205,6 +205,9 @@ public class AsyncBenchmark {
         @Option(desc = "Enable SSL with configuration file.")
         String sslfile = "";
 
+        @Option(desc = "Ignore missing rows")
+        boolean ignoremissing = false;
+
         @Override
         public void validate() {
             if (duration <= 0) exitWithMessageAndUsage("duration must be > 0");
@@ -982,7 +985,9 @@ public class AsyncBenchmark {
         }
         else {
             System.out.println("\n-------------------\nError! Database Put counts don't match!!\n");
-            System.exit(1);
+            if (! config.ignoremissing) {
+                System.exit(1);
+            }
         }
     }
 
