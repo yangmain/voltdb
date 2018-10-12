@@ -208,6 +208,10 @@ public class AsyncBenchmark {
         @Option(desc = "Ignore missing rows")
         boolean ignoremissing = false;
 
+        @Option(desc = "updatetimestamps")
+        boolean updatetimestamps = false;
+
+
         @Override
         public void validate() {
             if (duration <= 0) exitWithMessageAndUsage("duration must be > 0");
@@ -850,10 +854,19 @@ public class AsyncBenchmark {
                     }
                     else
                         debug = false;
-                    client.callProcedure(new PutCallback(pair, mpRand), "PutMp", pair.Key, pair.getStoreValue());
+                    if (! config.updatetimestamps) {
+                        client.callProcedure(new PutCallback(pair, mpRand), "PutMpTS", pair.Key, pair.getStoreValue());
+                    } else {
+                        client.callProcedure(new PutCallback(pair, mpRand), "PutMp", pair.Key, pair.getStoreValue());
+                    }
+
                 }
                 else {
-                    client.callProcedure(new PutCallback(pair, mpRand), "Put", pair.Key, pair.getStoreValue());
+                    if (! config.updatetimestamps) {
+                        client.callProcedure(new PutCallback(pair, mpRand), "PutTS", pair.Key, pair.getStoreValue());
+                    } else {
+                        client.callProcedure(new PutCallback(pair, mpRand), "Put", pair.Key, pair.getStoreValue());
+                    }
                 }
             }
             currentTime = System.currentTimeMillis();

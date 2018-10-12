@@ -17,3 +17,5 @@ CREATE PROCEDURE PARTITION ON TABLE store COLUMN key FROM class voltkvqa.procedu
 CREATE PROCEDURE PARTITION ON TABLE store COLUMN key FROM class voltkvqa.procedures.Remove;
 CREATE PROCEDURE PARTITION ON TABLE store COLUMN key FROM class voltkvqa.procedures.GetMp;
 CREATE PROCEDURE PARTITION ON TABLE store COLUMN key FROM class voltkvqa.procedures.PutMp;
+CREATE PROCEDURE PARTITION ON TABLE store COLUMN key FROM class voltkvqa.procedures.PutTS;
+CREATE PROCEDURE PARTITION ON TABLE store COLUMN key FROM class voltkvqa.procedures.PutMpTS;
