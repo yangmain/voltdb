@@ -60,19 +60,18 @@ public class ExportRabbitMQVerifier {
     {
         final Connection connection = m_connFactory.newConnection();
         final Channel channel = connection.createChannel();
-
         try {
             channel.exchangeDeclare(m_exchangeName, "topic", true);
             String dataQueue = channel.queueDeclare().getQueue();
-            channel.queueBind(dataQueue, m_exchangeName, "EXPORT_PARTITIONED_TABLE.#");
-            channel.queueBind(dataQueue, m_exchangeName, "EXPORT_PARTITIONED_TABLE2.#");
-            channel.queueBind(dataQueue, m_exchangeName, "EXPORT_REPLICATED_TABLE.#");
-            channel.queueBind(dataQueue, m_exchangeName, "EXPORT_PARTITIONED_TABLE_FOO.#");
-            channel.queueBind(dataQueue, m_exchangeName, "EXPORT_PARTITIONED_TABLE2_FOO.#");
-            channel.queueBind(dataQueue, m_exchangeName, "EXPORT_REPLICATED_TABLE_FOO.#");
+            channel.queueBind(dataQueue, m_exchangeName, "EXPORT_PARTITIONED_STREAM.#");
+            channel.queueBind(dataQueue, m_exchangeName, "EXPORT_PARTITIONED_STREAM2.#");
+            channel.queueBind(dataQueue, m_exchangeName, "EXPORT_REPLICATED_STREAM.#");
+            channel.queueBind(dataQueue, m_exchangeName, "EXPORT_PARTITIONED_STREAM_FOO.#");
+            channel.queueBind(dataQueue, m_exchangeName, "EXPORT_PARTITIONED_STREAM2_FOO.#");
+            channel.queueBind(dataQueue, m_exchangeName, "EXPORT_REPLICATED_STREAM_FOO.#");
             String doneQueue = channel.queueDeclare().getQueue();
-            channel.queueBind(doneQueue, m_exchangeName, "EXPORT_DONE_TABLE.#");
-            channel.queueBind(doneQueue, m_exchangeName, "EXPORT_DONE_TABLE_FOO.#");
+            channel.queueBind(doneQueue, m_exchangeName, "EXPORT_DONE_STREAM.#");
+            channel.queueBind(doneQueue, m_exchangeName, "EXPORT_DONE_STREAM_FOO.#");
 
             // Setup callback for data stream
             channel.basicConsume(dataQueue, false, createConsumer(channel));
