@@ -42,6 +42,8 @@ import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.SocketException;
 import java.net.URL;
+import java.security.Provider;
+import java.security.Security;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -2908,6 +2910,21 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback, HostM
 
     //TODO: Is there a better place for this ssl setup work and constant defns
     private void setupSSL(ReadDeploymentResults readDepl) {
+        try {
+            String nsscfg = "name = NSScrypto\n" +
+                            "nssLibraryDirectory = /usr/lib64\n" +
+                            "nssDbMode = noDb\n" +
+                            "attributes = compatibility";
+            File file = File.createTempFile("nss", "cfg");
+            FileWriter fw = new FileWriter(file);
+            fw.write(nsscfg);
+            fw.close();
+            Provider p = new sun.security.pkcs11.SunPKCS11(file.getAbsolutePath());
+            Security.insertProviderAt(p, 1);
+            hostLog.info("Setup PKCS provider");
+        } catch(Exception e) {
+            hostLog.error("Error setting up PKCS provider", e);
+        }
         SslType sslType = readDepl.deployment.getSsl();
         m_config.m_sslEnable = m_config.m_sslEnable || (sslType != null && sslType.isEnabled());
         if (m_config.m_sslEnable) {
