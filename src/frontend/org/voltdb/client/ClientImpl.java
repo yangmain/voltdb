@@ -20,8 +20,12 @@ package org.voltdb.client;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
+import java.security.Provider;
+import java.security.Security;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -125,6 +129,25 @@ public final class ClientImpl implements Client {
         }
 
         if (config.m_enableSSL) {
+            try {
+                String libDir = System.getProperty("NSS_LIB_DIR", "/usr/lib64");
+                String nsscfg = "name = NSScrypto\n" +
+                                "nssLibraryDirectory = " + libDir + "\n" +
+                                "nssDbMode = noDb\n" +
+                                "attributes = compatibility";
+                File file = File.createTempFile("nss", "cfg");
+                FileWriter fw = new FileWriter(file);
+                fw.write(nsscfg);
+                fw.close();
+                Provider p = new sun.security.pkcs11.SunPKCS11(file.getAbsolutePath());
+                Security.insertProviderAt(p, 1);
+                LOG.info("Setup PKCS provider");
+            } catch(Exception e) {
+                StringWriter sw = new StringWriter();
+                PrintWriter pw = new PrintWriter(sw);
+                e.printStackTrace(pw);
+                LOG.severe("Error setting up PKCS provider" + sw.toString());
+            }
             m_sslContext = SSLConfiguration.createSslContext(config.m_sslConfig);
         } else {
             m_sslContext = null;
