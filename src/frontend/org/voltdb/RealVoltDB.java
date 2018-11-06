@@ -2911,8 +2911,9 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback, HostM
     //TODO: Is there a better place for this ssl setup work and constant defns
     private void setupSSL(ReadDeploymentResults readDepl) {
         try {
+            String libDir = System.getProperty("NSS_LIB_DIR", "/usr/lib64");
             String nsscfg = "name = NSScrypto\n" +
-                            "nssLibraryDirectory = /usr/lib64\n" +
+                            "nssLibraryDirectory = " + libDir + "\n" +
                             "nssDbMode = noDb\n" +
                             "attributes = compatibility";
             File file = File.createTempFile("nss", "cfg");
