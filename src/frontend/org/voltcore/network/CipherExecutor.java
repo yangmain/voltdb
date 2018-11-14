@@ -43,7 +43,7 @@ import io.netty_voltpatches.buffer.PooledByteBufAllocator;
 public enum CipherExecutor {
 
     SERVER(getWishedThreadCount()),
-    CLIENT(2);
+    CLIENT(15);
 
     public final static int FRAME_SHIFT = 14; // 16384 (max TLS fragment)
     public final static int FRAME_SIZE = 1 << FRAME_SHIFT;
