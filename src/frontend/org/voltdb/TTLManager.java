@@ -31,7 +31,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+
 import org.hsqldb_voltpatches.TimeToLiveVoltDB;
+import org.hsqldb_voltpatches.lib.StringUtil;
+import org.voltcore.logging.Level;
 import org.voltcore.logging.VoltLogger;
 import org.voltcore.utils.CoreUtils;
 import org.voltdb.VoltTable.ColumnInfo;
@@ -39,9 +42,10 @@ import org.voltdb.catalog.Table;
 import org.voltdb.catalog.TimeToLive;
 import org.voltdb.client.ClientResponse;
 import org.voltdb.client.ProcedureCallback;
+import org.voltdb.iv2.MpTransactionState;
 import org.voltdb.utils.CatalogUtil;
 
-//schedule and process time-to-live feature via @LowImpactDelete. The host with smallest host id
+//schedule and process time-to-live feature via @LowImpactDeleteNT. The host with smallest host id
 //will get the task done.
 public class TTLManager extends StatsSource{
 
@@ -49,10 +53,10 @@ public class TTLManager extends StatsSource{
     //DRTupleStream.cpp
     public static final String DR_LIMIT_MSG = "bytes exceeds max DR Buffer size";
     static final int DELAY = Integer.getInteger("TIME_TO_LIVE_DELAY", 0) * 1000;
-    static final int INTERVAL = Integer.getInteger("TIME_TO_LIVE_INTERVAL", 1) * 1000;
+    static final int INTERVAL = Integer.getInteger("TIME_TO_LIVE_INTERVAL", 1000);
     static final int CHUNK_SIZE = Integer.getInteger("TIME_TO_LIVE_CHUNK_SIZE", 1000);
     static final int TIMEOUT = Integer.getInteger("TIME_TO_LIVE_TIMEOUT", 2000);
-
+    static final int LOG_SUPPRESSION_INTERVAL_SECONDS = 60;
     public static class TTLStats {
         final String tableName;
         long rowsLeft = 0L;
@@ -101,7 +105,7 @@ public class TTLManager extends StatsSource{
             ClientInterface cl = voltdb.getClientInterface();
             if (!canceled.get() && cl != null && cl.isAcceptingConnections()) {
                 String stream = ttlRef.get().getStream();
-                if (stream != null && !"".equals(stream)) {
+                if (!StringUtil.isEmpty(stream)) {
                     performExport(cl, this);
                 } else {
                     performDelete(cl, this);
@@ -260,7 +264,10 @@ public class TTLManager extends StatsSource{
                 }
                 task = new TTLTask(t.getTypeName(), ttl, stats);
                 m_tasks.put(t.getTypeName(), task);
-                m_futures.put(t.getTypeName(), m_timeToLiveExecutor.scheduleAtFixedRate(task, DELAY + random.nextInt((int)INTERVAL), INTERVAL, TimeUnit.MILLISECONDS));
+                m_futures.put(t.getTypeName(),
+                              m_timeToLiveExecutor.scheduleAtFixedRate(task,
+                                      DELAY + random.nextInt(INTERVAL),
+                                      INTERVAL, TimeUnit.MILLISECONDS));
                 hostLog.info(String.format(info + " has been scheduled.", t.getTypeName()));
             } else {
                 task.updateTask(ttl);
@@ -360,7 +367,9 @@ public class TTLManager extends StatsSource{
                             // The buffer limit for a DR transaction is 50M. If over the limit,
                             // the transaction will be aborted. The same is true for nibble delete transaction.
                             // If hit this error, no more data can be deleted in this TTL table.
-                            drLimitError = "TTL is disabled for this table.";
+                            drLimitError = "The transaction exceeds DR Buffer Limit of "
+                                    + MpTransactionState.DR_MAX_AGGREGATE_BUFFERSIZE
+                                    + " TTL is disabled for the table. Please change BATCH_SIZE to a smaller value.";
                             task.cancel();
                             ScheduledFuture<?> fut = m_futures.get(task.tableName);
                             if (fut != null) {
@@ -368,7 +377,8 @@ public class TTLManager extends StatsSource{
                                 m_futures.remove(task.tableName);
                             }
                         }
-                        hostLog.warn("Errors occured on TTL table " + task.tableName + ": " +  error + " " + drLimitError);
+                        hostLog.rateLimitedLog(LOG_SUPPRESSION_INTERVAL_SECONDS, Level.WARN, null,
+                                "Errors occured on TTL table %s: %s %s", task.tableName, error, drLimitError);
                     } else {
                         task.stats.update(t.getLong("ROWS_DELETED"), t.getLong("ROWS_LEFT"), t.getLong("LAST_DELETE_TIMESTAMP"));
                     }
@@ -377,7 +387,7 @@ public class TTLManager extends StatsSource{
             }
         };
         cl.getDispatcher().getInternelAdapterNT().callProcedure(cl.getInternalUser(), true, 1000 * 120, cb,
-                "@LowImpactDelete", new Object[] {task.tableName, task.getColumnName(), task.getValue(), "<=", task.getBatchSize(),
+                "@LowImpactDeleteNT", new Object[] {task.tableName, task.getColumnName(), task.getValue(), "<=", task.getBatchSize(),
                         TIMEOUT, task.getMaxFrequency(), INTERVAL});
         try {
             latch.await(1, TimeUnit.MINUTES);
@@ -386,3 +396,4 @@ public class TTLManager extends StatsSource{
         }
     }
 }
+

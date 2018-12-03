@@ -257,9 +257,9 @@ public class NibbleExportProcNT extends VoltNTSystemProcedure {
         String[] errors = new String[attemptsLeft];
         Arrays.fill(errors, "");
         AtomicBoolean success = new AtomicBoolean(true);
-        class DeleteTask implements Runnable {
+        class ExportTask implements Runnable {
             final int attempt;
-            public DeleteTask(int attempt) {
+            public ExportTask(int attempt) {
                 this.attempt = attempt;
             }
             @Override
@@ -286,7 +286,7 @@ public class NibbleExportProcNT extends VoltNTSystemProcedure {
         status.rowsJustDeleted = 0;
         int attempts = 1;
         while (attempts <= attemptsLeft) {
-            DeleteTask task = new DeleteTask(attempts);
+            ExportTask task = new ExportTask(attempts);
             es.schedule(task, delay * attempts, TimeUnit.MILLISECONDS);
             attempts++;
         }

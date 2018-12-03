@@ -321,6 +321,7 @@ enum ExpressionType {
     EXPRESSION_TYPE_AGGREGATE_WINDOWED_MAX                    = 73,
     EXPRESSION_TYPE_AGGREGATE_WINDOWED_MIN                    = 74,
     EXPRESSION_TYPE_AGGREGATE_WINDOWED_SUM                    = 75,
+    EXPRESSION_TYPE_AGGREGATE_WINDOWED_ROW_NUMBER             = 76,
     // -----------------------------
     // Functions
     // -----------------------------
@@ -540,14 +541,6 @@ enum DRTxnPartitionHashFlag {
     TXN_PAR_HASH_MULTI = 3,       // txn contains multiple partition key hashes
     TXN_PAR_HASH_SPECIAL = 4      // txn contains TRUNCATE_TABLE record(s)
 };
-
-// ------------------------------------------------------------------
-// Masks for DR records type and DR transaction partition hash flag
-// ------------------------------------------------------------------
-// Keep sync with Java REPLICATED_TABLE_MASK at PartitionDRGateway.java
-// This mask uses -128 which corresponds to 0x80
-// The first bit is set with this mask to indicate that subsequent records are for replicated tables
-static const int8_t REPLICATED_TABLE_MASK = INT8_MIN;
 
 inline size_t rowCostForDRRecord(DRRecordType type) {
     // Warning: Currently, the PersistentTableUndo*Actions rely on

@@ -17,11 +17,10 @@
 
 package org.voltdb;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileReader;
-import java.io.IOException;
-import java.io.PrintWriter;
+import java.io.*;
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadInfo;
+import java.lang.management.ThreadMXBean;
 import java.lang.reflect.InvocationTargetException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayDeque;
@@ -184,6 +183,10 @@ public class VoltDB {
         /** port number to use for DR channel (override in the deployment file) */
         public int m_drAgentPortStart = DISABLED_PORT;
         public String m_drInterface = "";
+
+        /** interface and port used for consumers to connect to DR on this cluster. Used in hosted env primarily **/
+        public String m_drPublicHost;
+        public int m_drPublicPort = DISABLED_PORT;
 
         /** HTTP port can't be set here, but eventually value will be reflected here */
         public int m_httpPort = Constants.HTTP_PORT_DISABLED;
@@ -412,6 +415,15 @@ public class VoltDB {
                         m_internalPort = hap.getPort();
                     } else {
                         m_internalPort = Integer.parseInt(portStr);
+                    }
+                } else if (arg.equals("drpublic")) {
+                    String publicStr = args[++i];
+                    if (publicStr.indexOf(':') != -1) {
+                        HostAndPort hap = MiscUtils.getHostAndPortFromHostnameColonPort(publicStr, VoltDB.DEFAULT_DR_PORT);
+                        m_drPublicHost = hap.getHost();
+                        m_drPublicPort = hap.getPort();
+                    } else {
+                        m_drPublicHost = publicStr;
                     }
                 } else if (arg.equals("replicationport")) {
                     String portStr = args[++i];
@@ -1207,6 +1219,7 @@ public class VoltDB {
      * Exit the process with an error message, optionally with a stack trace.
      */
     public static void crashLocalVoltDB(String errMsg, boolean stackTrace, Throwable thrown) {
+
         if (exitAfterMessage) {
             System.err.println(errMsg);
             VoltDB.exit(-1);
@@ -1457,6 +1470,15 @@ public class VoltDB {
         singleton = testInstance;
     }
 
+    public static String getPublicReplicationInterface() {
+        return (m_config.m_drPublicHost == null || m_config.m_drPublicHost.isEmpty()) ?
+                "" : m_config.m_drPublicHost;
+    }
+
+    public static int getPublicReplicationPort() {
+        return m_config.m_drPublicPort;
+    }
+
     /**
      * Selects the a specified m_drInterface over a specified m_externalInterface from m_config
      * @return an empty string when neither are specified
@@ -1505,6 +1527,39 @@ public class VoltDB {
             throw new SimulatedExitException(status);
         }
         System.exit(status);
+    }
+
+    public static String generateThreadDump() {
+        StringBuilder threadDumps = new StringBuilder();
+        ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
+        ThreadInfo[] threadInfos = threadMXBean.dumpAllThreads(true, true);
+        for (ThreadInfo t : threadInfos) {
+            threadDumps.append(t);
+        }
+        return threadDumps.toString();
+    }
+
+    public static boolean dumpThreadTraceToFile(String dumpDir, String fileName) {
+        final File dir = new File(dumpDir);
+        if (!dir.getParentFile().canWrite() || !dir.getParentFile().canExecute()) {
+            System.err.println("Parent directory " + dir.getParentFile().getAbsolutePath() +
+                    " is not writable");
+            return false;
+        }
+        if (!dir.exists()) {
+            if (!dir.mkdir()) {
+                System.err.println("Failed to create directory " + dir.getAbsolutePath());
+                return false;
+            }
+        }
+        File file = new File(dumpDir, fileName);
+        try (FileWriter writer = new FileWriter(file); PrintWriter out = new PrintWriter(writer)) {
+            out.println(generateThreadDump());
+        } catch (IOException e) {
+            System.err.println("Failed to write to file " + file.getAbsolutePath());
+            return false;
+        }
+        return true;
     }
 
     private static VoltDB.Configuration m_config = new VoltDB.Configuration();

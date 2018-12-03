@@ -138,12 +138,12 @@ public class TestMVOptimizationSuite extends RegressionSuite {
         checkThat(client,
                 "SELECT SUM(a) FROM t1 WHERE b1 IN (3, 30, 300) OR b >= 20 GROUP BY a1",
                 null, "sequential scan of \"t1\"");
-        cleanTableAndViews(client, "V5_1");
         // Check that directly running matched query in subquery should not go wrong
         final String q =
                 "SELECT * FROM (select zone, min(temperature) min_temperature, max(humidity) max_humidity FROM sensor " +
                 "WHERE uptime >= 72000 GROUP BY id, zone) foo ORDER BY zone;";
         client.callProcedure("@AdHoc", q).getResults();
+        cleanTableAndViews(client, "V5_1", "long_running");
     }
 
     public void testMVResolution() throws IOException, ProcCallException {
@@ -157,9 +157,10 @@ public class TestMVOptimizationSuite extends RegressionSuite {
                 "CREATE VIEW v5_4 AS SELECT a1 a1, COUNT(b1) count_b1, SUM(a) sum_a, " +
                         "COUNT(*) counts FROM t1 WHERE a >= 2 OR b1 IN (3,30,300) GROUP BY a1;");
         // call a query with single unmatched constant
-        client.callProcedure("@AdHoc", "SELECT COUNT(b1) FROM t1 WHERE b >= 20 OR b1 in (3, 30, 300) GROUP BY a1");
-        checkThat(client, "SELECT COUNT(b1) cb FROM t1 WHERE b >= 2 OR b1 in (3, 30, 300) GROUP BY a1",
-                "SELECT count_b1 cb FROM v5_1", "sequential scan of \"v5_3\"");
+        assertTablesAreEqual("Exact match with view",
+                client.callProcedure("@AdHoc", "SELECT COUNT(b1) cb FROM t1 WHERE b >= 2 OR b1 in (3, 30, 300) GROUP BY a1 order by cb").getResults()[0],
+                client.callProcedure("@AdHoc", "SELECT count_b1 cb FROM v5_1 order by cb").getResults()[0]);
+        assertTrue(getQueryPlan('\n', client, "SELECT COUNT(b1) cb FROM t1 WHERE b >= 2 OR b1 in (3, 30, 300) GROUP BY a1").toLowerCase().contains("sequential scan of \"v5_3\"".toLowerCase()));
         cleanTableAndViews(client, "V5_1", "V5_2", "V5_3", "V5_4");
     }
 

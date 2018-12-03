@@ -89,10 +89,15 @@ public class SpInitiator extends BaseInitiator implements Promotable
             }
 
             if (!leaders.contains(getInitiatorHSId())) {
+                // We used to shutdown SpTerm when the site is no longer leader,
+                // however during leader migration there is a short window between
+                // the new leader fails before leader migration comes to finish and
+                // the old leader accepts promotion. If rejoin happens in this window,
+                // SpTerm will fail to add the new site id into the replica list, it
+                // can cause rejoin node hangs on receiving stream snapshot.
+                // Because of this reason we keep the SpTerm even if it's no longer the
+                // leader.
                 m_promoted = false;
-                if (m_term != null) {
-                    m_term.shutdown();
-                }
                 if (tmLog.isDebugEnabled()) {
                     tmLog.debug(CoreUtils.hsIdToString(getInitiatorHSId()) + " is not a partition leader.");
                 }
@@ -153,15 +158,12 @@ public class SpInitiator extends BaseInitiator implements Promotable
         CommandLog commandLog = VoltDB.instance().getCommandLog();
         boolean asyncCommandLogEnabled = commandLog.isEnabled() && !commandLog.isSynchronous();
 
-        // DRProducerProtocol.NO_REPLICATED_STREAM_PROTOCOL_VERSION
-        // TODO get rid of createMpDRGateway and related code in the .1 release once
-        // the next compatible version doesn't use replicated stream
-
         // configure DR
         PartitionDRGateway drGateway = PartitionDRGateway.getInstance(m_partitionId, nodeDRGateway, startAction);
         if (asyncCommandLogEnabled) {
             configureDurableUniqueIdListener(drGateway, true);
         }
+        m_repairLog.registerTransactionCommitInterest(drGateway);
 
         final PartitionDRGateway mpPDRG;
         if (createMpDRGateway) {
@@ -169,6 +171,7 @@ public class SpInitiator extends BaseInitiator implements Promotable
             if (asyncCommandLogEnabled) {
                 configureDurableUniqueIdListener(mpPDRG, true);
             }
+            m_repairLog.registerTransactionCommitInterest(mpPDRG);
         } else {
             mpPDRG = null;
         }
@@ -196,6 +199,12 @@ public class SpInitiator extends BaseInitiator implements Promotable
         try {
             long startTime = System.currentTimeMillis();
             Boolean success = false;
+            if (m_term != null) {
+                m_term.shutdown();
+            }
+            // When the leader is migrated away from this site, the term is still active
+            // If the leader is moved back to the site, recreate the term to ensure no-missed
+            // update.
             m_term = createTerm(m_messenger.getZK(),
                     m_partitionId, getInitiatorHSId(), m_initiatorMailbox,
                     m_whoami);
@@ -210,7 +219,7 @@ public class SpInitiator extends BaseInitiator implements Promotable
                 // state, it will respond REJOINING to new work which will break
                 // the MPI and/or be unexpected to external clients.
                 if (!migratePartitionLeader && !m_initiatorMailbox.acceptPromotion()) {
-                    tmLog.error(m_whoami
+                    tmLog.info(m_whoami
                             + "rejoining site can not be promoted to leader. Terminating.");
                     VoltDB.crashLocalVoltDB("A rejoining site can not be promoted to leader.", false, null);
                     return;
@@ -266,7 +275,7 @@ public class SpInitiator extends BaseInitiator implements Promotable
                     exportLog.debug("Export Manager has been notified that local partition " +
                             m_partitionId + " to accept export stream mastership.");
                 }
-                ExportManager.instance().acceptMastership(m_partitionId);
+                ExportManager.instance().takeMastership(m_partitionId);
             }
         } catch (Exception e) {
             VoltDB.crashLocalVoltDB("Terminally failed leader promotion.", true, e);

@@ -43,7 +43,6 @@ import org.hsqldb_voltpatches.rights.Grantee;
 import org.hsqldb_voltpatches.rights.GranteeManager;
 import org.hsqldb_voltpatches.rights.Right;
 import org.hsqldb_voltpatches.rights.User;
-import org.hsqldb_voltpatches.types.BooleanType;
 import org.hsqldb_voltpatches.types.Charset;
 import org.hsqldb_voltpatches.types.Type;
 import org.hsqldb_voltpatches.types.UserTypeModifier;
@@ -903,7 +902,11 @@ public class ParserDDL extends ParserRoutine {
                         checkIsSimpleName();
 
                         return compileAlterTableAddColumn(t);
-
+                    case Tokens.USING :
+                        if (t.getTTL() != null) {
+                            throw Error.error(ErrorCode.X_42504);
+                        }
+                        return readTimeToLive(t, true);
                     default :
                         if (cname != null) {
                             throw unexpectedToken();
@@ -920,8 +923,6 @@ public class ParserDDL extends ParserRoutine {
                 switch (token.tokenType) {
 
                     case Tokens.PRIMARY : {
-                        boolean cascade = false;
-
                         read();
                         readThis(Tokens.KEY);
 
@@ -1004,7 +1005,6 @@ public class ParserDDL extends ParserRoutine {
     }
 
     private Statement readTimeToLive(Table table, boolean alter) {
-
         //syntax: USING TTL 10 SECONDS ON COLUMN a MAX_FREQUENCY 1 BATCH_SIZE 1000 STREAM XXX
         if (!alter && token.tokenType != Tokens.USING) {
             return null;
@@ -5458,6 +5458,9 @@ public class ParserDDL extends ParserRoutine {
             Expression expression = XreadValueExpression();
             indexExprs.add(expression);
 
+            if (token.tokenType == Tokens.DESC) {
+                throw unexpectedToken();
+            }
             // A VoltDB extension to the "readColumnList(table, true)" support for descending-value indexes,
             // that similarly parses the asc/desc indicators but COLLECTS them so they can be ignored later,
             // rather than ignoring them on the spot.

@@ -32,15 +32,17 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadLocalRandom;
 
 import org.voltcore.logging.VoltLogger;
-import org.voltcore.utils.DBBPool.BBContainer;
 import org.voltcore.utils.Pair;
 import org.voltdb.VoltDB;
 import org.voltdb.VoltType;
 import org.voltdb.export.AdvertisedDataSource;
 import org.voltdb.export.ExportDataProcessor;
 import org.voltdb.export.ExportDataSource;
+import org.voltdb.export.ExportDataSource.AckingContainer;
+import org.voltdb.export.ExportDataSource.ReentrantPollException;
 import org.voltdb.export.ExportGeneration;
 import org.voltdb.export.ExportDataSource.NibbleDeletingContainer;
+import org.voltdb.export.StreamBlockQueue;
 import org.voltdb.exportclient.ExportClientBase;
 import org.voltdb.exportclient.ExportDecoderBase;
 import org.voltdb.exportclient.ExportDecoderBase.RestartBlockException;
@@ -132,7 +134,7 @@ public class GuestProcessor implements ExportDataProcessor {
                         continue;
                     }
                     if (groupName == null && source.getClient() != null) {
-                        groupName = ((ExportClientBase )source.getClient()).getTargetName();
+                        groupName = source.getClient().getTargetName();
                         m_targetsByTableName.put(tableName, groupName);
                     }
                     //If we have a new client for the target use it or see if we have an older client which is set before
@@ -193,7 +195,7 @@ public class GuestProcessor implements ExportDataProcessor {
             }
 
             m_source.setClient(client);
-            m_source.setRunEveryWhere(m_client.isRunEverywhere());
+            m_source.runEveryWhere(m_client.isRunEverywhere());
         }
 
         @Override
@@ -225,7 +227,8 @@ public class GuestProcessor implements ExportDataProcessor {
             detectDecoder(m_client, edb);
             Pair<ExportDecoderBase, AdvertisedDataSource> pair = Pair.of(edb, ads);
             m_decoders.add(pair);
-            addBlockListener(m_source, m_source.poll(), edb);
+            final ListenableFuture<AckingContainer> fut = m_source.poll();
+            addBlockListener(m_source, fut, edb);
         }
 
         private void runDataSource() {
@@ -308,7 +311,7 @@ public class GuestProcessor implements ExportDataProcessor {
 
     private void addBlockListener(
             final ExportDataSource source,
-            final ListenableFuture<BBContainer> fut,
+            final ListenableFuture<AckingContainer> fut,
             final ExportDecoderBase edb) {
         /*
          * The listener runs in the thread specified by the EDB.
@@ -316,6 +319,7 @@ public class GuestProcessor implements ExportDataProcessor {
          * For JDBC we want a dedicated thread to block on calls to the remote database
          * so the data source thread can overflow data to disk.
          */
+
         if (fut == null) {
             return;
         }
@@ -323,7 +327,7 @@ public class GuestProcessor implements ExportDataProcessor {
             @Override
             public void run() {
                 try {
-                    BBContainer cont = fut.get();
+                    AckingContainer cont = fut.get();
                     if (cont == null) {
                         return;
                     }
@@ -345,25 +349,46 @@ public class GuestProcessor implements ExportDataProcessor {
                                 final ByteBuffer buf = cont.b();
                                 buf.position(startPosition);
                                 buf.order(ByteOrder.LITTLE_ENDIAN);
-                                long generation = -1L;
+                                byte version = buf.get();
+                                assert(version == StreamBlockQueue.EXPORT_BUFFER_VERSION);
+                                long generation = buf.getLong();
+                                int schemaSize = buf.getInt();
+                                ExportRow previousRow = edb.getPreviousRow();
+                                if (previousRow == null || previousRow.generation != generation) {
+                                    byte[] schemadata = new byte[schemaSize];
+                                    buf.get(schemadata, 0, schemaSize);
+                                    ByteBuffer sbuf = ByteBuffer.wrap(schemadata);
+                                    sbuf.order(ByteOrder.LITTLE_ENDIAN);
+                                    edb.setPreviousRow(ExportRow.decodeBufferSchema(sbuf, schemaSize, source.getPartitionId(), generation));
+                                }
+                                else {
+                                    // Skip past the schema header because it has not changed.
+                                    buf.position(buf.position() + schemaSize);
+                                }
                                 ExportRow row = null;
+                                boolean firstRowOfBlock = true;
                                 while (buf.hasRemaining() && !m_shutdown) {
                                     int length = buf.getInt();
                                     byte[] rowdata = new byte[length];
                                     buf.get(rowdata, 0, length);
                                     if (edb.isLegacy()) {
+                                        cont.updateStartTime(System.currentTimeMillis());
                                         edb.onBlockStart();
                                         edb.processRow(length, rowdata);
                                     } else {
                                         //New style connector.
                                         try {
+                                            cont.updateStartTime(System.currentTimeMillis());
                                             row = ExportRow.decodeRow(edb.getPreviousRow(), source.getPartitionId(), m_startTS, rowdata);
                                             if (m_nibbleDeletePkCol >= 0) {
                                                 if (ndCont == null) {
                                                     // replace the buffer container with a wrapper that invokes the delete
                                                     ndCont = source.createDeleterInvocation(row.types.get(m_nibbleDeletePkCol),
                                                             cont, m_nibbleDeleteTableName, row.names.get(m_nibbleDeletePkCol));
-                                                    cont = ndCont;
+
+
+                                                    // TO BE RESOLVED!
+                                                    //cont = ndCont;
                                                 }
                                                 ndCont.addPk(row.values[m_nibbleDeletePkCol]);
                                             }
@@ -379,15 +404,11 @@ public class GuestProcessor implements ExportDataProcessor {
                                             cont = null;
                                             break;
                                         }
-                                        if (generation == -1L) {
+                                        if (firstRowOfBlock) {
                                             edb.onBlockStart(row);
+                                            firstRowOfBlock = false;
                                         }
                                         edb.processRow(row);
-                                        if (generation != -1L && row.generation != generation) {
-                                            edb.onBlockCompletion(row);
-                                            edb.onBlockStart(row);
-                                        }
-                                        generation = row.generation;
                                     }
                                 }
                                 if (edb.isLegacy()) {
@@ -396,8 +417,12 @@ public class GuestProcessor implements ExportDataProcessor {
                                 if (row != null) {
                                     edb.onBlockCompletion(row);
                                 }
-                                //Make sure to discard after onBlockCompletion so that if completion wants to retry we dont lose block.
-                                if (cont != null) {
+                                // Make sure to discard after onBlockCompletion so that if completion
+                                // wants to retry we don't lose block.
+                                // Please note that if export manager is shutting down it's possible
+                                // that container isn't fully consumed. Discard the buffer prematurely
+                                // would cause missing rows in export stream.
+                                if (!m_shutdown && cont != null) {
                                     cont.discard();
                                     cont = null;
                                 }
@@ -437,7 +462,13 @@ public class GuestProcessor implements ExportDataProcessor {
                         }
                     }
                 } catch (Exception e) {
-                    m_logger.error("Error processing export block", e);
+                    if (e.getCause() instanceof ReentrantPollException) {
+                        m_logger.info("Stopping processing export blocks: " + e.getMessage());
+                        return;
+
+                    } else {
+                        m_logger.error("Error processing export block, continuing processing: ", e);
+                    }
                 }
                 if (!m_shutdown) {
                     addBlockListener(source, source.poll(), edb);

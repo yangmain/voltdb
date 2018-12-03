@@ -148,7 +148,7 @@ public class SystemProcedureCatalog {
 
     public static final ImmutableMap<String, Config> listing;
 
-    static {                                                                                            // SP     RO     Every  Param ParamType           PRO    killDR skipDR replica-ok durable allowedInShutdown transactional restartable
+    static {                                                                                                                    // SP     RO     Every  Param ParamType           PRO    killDR skipDR replica-ok durable allowedInShutdown transactional restartable
         // special-case replica acceptability by DR version
         ImmutableMap.Builder<String, Config> builder = ImmutableMap.builder();
         builder.put("@AdHoc_RW_MP",             new Config("org.voltdb.sysprocs.AdHoc_RW_MP",              false, false, false, 0,    VoltType.INVALID,   false, false, false, false,     true,   false,            true,         true  ));
@@ -156,6 +156,7 @@ public class SystemProcedureCatalog {
         builder.put("@AdHoc_RO_MP",             new Config("org.voltdb.sysprocs.AdHoc_RO_MP",              false, true,  false, 0,    VoltType.INVALID,   false, false, false, true,      false,  false,            true,         true  ));
         builder.put("@MigratePartitionLeader",  new Config("org.voltdb.sysprocs.MigratePartitionLeader",   true,  true,  false, 0,    VoltType.BIGINT,    false, true,  true,  false,     false,  false,            true,         false  ));
         builder.put("@AdHoc_RO_SP",             new Config("org.voltdb.sysprocs.AdHoc_RO_SP",              true,  true,  false, 0,    VoltType.VARBINARY, false, false, false, true,      false,  false,            true,         true  ));
+        builder.put("@JStack",                  new Config(null,                                           false, false, false, 0,    VoltType.INVALID,   false, false, true,  true,      false,  true,             true,         false ));
         builder.put("@Pause",                   new Config("org.voltdb.sysprocs.Pause",                    false, false, true,  0,    VoltType.INVALID,   false, false, true,  true,      false,  false,            true,         false ));
         builder.put("@Resume",                  new Config("org.voltdb.sysprocs.Resume",                   false, false, true,  0,    VoltType.INVALID,   false, false, true,  true,      false,  false,            true,         false ));
         builder.put("@Quiesce",                 new Config("org.voltdb.sysprocs.Quiesce",                  false, false, false, 0,    VoltType.INVALID,   false, false, true,  true,      false,  true ,            true,         false ));
@@ -221,10 +222,11 @@ public class SystemProcedureCatalog {
         builder.put("@NibbleDeleteMP",          new Config("org.voltdb.sysprocs.NibbleDeleteMP",           false, false, false, 0,    VoltType.INVALID,   false, false, true,  true,      true,   false,            true,         true ));
         builder.put("@NibbleDeleteAfterExportSP",new Config("org.voltdb.sysprocs.NibbleDeleteAfterExportSP",
                                                                                                            true, false, false, 0,    VoltType.INVALID,   false, false, true,  true,      true,   false,            true,         true ));
-        builder.put("@LowImpactDelete",         new Config("org.voltdb.sysprocs.LowImpactDelete",          true,  false, false, 0,    VoltType.INVALID,   false, false, false, true,      false,  false,            false,        false ));
         builder.put("@NibbleExportSP",          new Config("org.voltdb.sysprocs.NibbleExportSP",           true,  false, false, 0,    VoltType.INVALID,   false, false, true,  true,      true,   false,            true,         true ));
         builder.put("@NibbleExportMP",          new Config("org.voltdb.sysprocs.NibbleExportMP",           false, false, false, 0,    VoltType.INVALID,   false, false, true,  true,      true,   false,            true,         true ));
         builder.put("@NibbleExportProcNT",      new Config("org.voltdb.sysprocs.NibbleExportProcNT",       true,  false, false, 0,    VoltType.INVALID,   false, false, false, true,      false,  false,            false,        false ));
+        builder.put("@LowImpactDeleteNT",       new Config("org.voltdb.sysprocs.LowImpactDeleteNT",        true,  false, false, 0,    VoltType.INVALID,   false, false, false, true,      false,  false,            false,        false ));
+        builder.put("@ExportControl",           new Config("org.voltdb.sysprocs.ExportControl",            false, false, false, 0,    VoltType.INVALID,   false, false, true,  true,      false,  false,            true,         false ));
 
         listing = builder.build();
     }

@@ -333,7 +333,6 @@ public abstract class CatalogSchemaTools {
                 if (ttl.getStream() != null && !"".equals(ttl.getStream())) {
                     table_sb.append(" STREAM " + ttl.getStream() + " ");
                 }
-
             }
             table_sb.append(";\n");
         }

@@ -127,14 +127,14 @@ public class MpTransactionTaskQueue extends TransactionTaskQueue
             if (e.getValue() instanceof MpProcedureTask) {
                 MpProcedureTask next = (MpProcedureTask)e.getValue();
                 if (tmLog.isDebugEnabled()) {
-                    tmLog.debug("MpTTQ: poisoning task: " + next);
+                    tmLog.debug("MpTTQ: poisoning task: " + next.toShortString());
                 }
                 next.doRestart(masters, partitionMasters);
 
-                if (!balanceSPI || readonly) {
+                if (!balanceSPI) {
                     MpTransactionState txn = (MpTransactionState)next.getTransactionState();
                     // inject poison pill
-                    FragmentTaskMessage dummy = new FragmentTaskMessage(0L, 0L, 0L, 0L,
+                    FragmentTaskMessage dummy = new FragmentTaskMessage(0L, 0L, txn.txnId, txn.uniqueId,
                             false, false, false, txn.isNPartTxn(), txn.getTimetamp());
                     FragmentResponseMessage poison =
                             new FragmentResponseMessage(dummy, 0L); // Don't care about source HSID here
@@ -147,7 +147,7 @@ public class MpTransactionTaskQueue extends TransactionTaskQueue
                     poison.setStatus(FragmentResponseMessage.UNEXPECTED_ERROR, restart);
                     txn.offerReceivedFragmentResponse(poison);
                     if (tmLog.isDebugEnabled()) {
-                        tmLog.debug("MpTTQ: restarting:" + next);
+                        tmLog.debug("MpTTQ: restarting:" + next.toShortString());
                     }
                 }
             }
@@ -161,7 +161,7 @@ public class MpTransactionTaskQueue extends TransactionTaskQueue
                 MpProcedureTask next = (MpProcedureTask)tt;
 
                 if (tmLog.isDebugEnabled()) {
-                    tmLog.debug("Repair updating task: " + next + " with masters: " + CoreUtils.hsIdCollectionToString(masters));
+                    tmLog.debug("Repair updating task: " + next.toShortString() + " with masters: " + CoreUtils.hsIdCollectionToString(masters));
                 }
                 next.updateMasters(masters, partitionMasters);
             }

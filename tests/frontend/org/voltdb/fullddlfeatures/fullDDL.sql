@@ -15,6 +15,8 @@ T1
     width * length
 );
 
+CREATE INDEX minus ON T1(-width);
+
 CREATE TABLE T2
 (
     width INTEGER
@@ -50,7 +52,7 @@ CREATE UNIQUE INDEX abs_Hash_idx
 ON
 T3
 (
-    ABS(val)
+    ABS(val) ASC
 );
 
 CREATE UNIQUE INDEX nomeaninghashweirdidx
@@ -376,6 +378,18 @@ AS
     FROM T24
     GROUP BY C1
           ,  C2
+;
+
+CREATE VIEW VT1b
+(
+    C1
+,   TOTAL
+)
+AS
+    SELECT C1
+        ,  SUM(C2)
+    FROM T24
+    GROUP BY C1
 ;
 
 CREATE VIEW VT2
@@ -1073,6 +1087,8 @@ CREATE TABLE T63
 ) USING TTL 10 ON COLUMN C3;
 PARTITION TABLE T63 ON COLUMN C3;
 CREATE INDEX ttl_idx ON T63 (C3);
+ALTER TABLE T63 DROP TTL;
+ALTER TABLE T63 ADD USING TTL 10 ON COLUMN C3;
 
 -- These statements were added when use of some Volt-specific functions or ||
 -- or NULL in indexed expressions was discovered to be mishandled (ENG-7792).

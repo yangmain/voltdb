@@ -430,8 +430,6 @@ int VoltDBEngine::executePlanFragments(int32_t numFragments,
 
     bool hasDRBinaryLog = m_executorContext->checkTransactionForDR();
 
-    // reset these at the start of each batch
-    m_executorContext->m_progressStats.resetForNewBatch();
     NValueArray &params = m_executorContext->getParameterContainer();
 
     // Reserve the space to track the number of succeeded fragments.
@@ -700,10 +698,11 @@ void VoltDBEngine::releaseUndoToken(int64_t undoToken, bool isEmptyDRTxn) {
 
     if (isEmptyDRTxn) {
         if (m_executorContext->drStream()) {
-            m_executorContext->drStream()->rollbackTo(m_executorContext->drStream()->m_committedUso, SIZE_MAX);
+            m_executorContext->drStream()->rollbackTo(m_executorContext->drStream()->m_committedUso, SIZE_MAX, SIZE_MAX);
         }
         if (m_executorContext->drReplicatedStream()) {
-            m_executorContext->drReplicatedStream()->rollbackTo(m_executorContext->drReplicatedStream()->m_committedUso, SIZE_MAX);
+            m_executorContext->drReplicatedStream()->rollbackTo(m_executorContext->drReplicatedStream()->m_committedUso,
+                                                                SIZE_MAX, SIZE_MAX);
         }
     }
     else {
@@ -1114,7 +1113,8 @@ VoltDBEngine::processCatalogAdditions(int64_t timestamp, bool updateReplicated,
                     ExportTupleStream *wrapper = m_exportingStreams[catalogTable->signature()];
                     if (wrapper == NULL) {
                         wrapper = new ExportTupleStream(m_executorContext->m_partitionId,
-                                m_executorContext->m_siteId, timestamp, catalogTable->signature());
+                                m_executorContext->m_siteId, timestamp, catalogTable->signature(),
+                                streamedtable->name(), streamedtable->getColumnNames());
                         m_exportingStreams[catalogTable->signature()] = wrapper;
                     } else {
                         // If stream was dropped in UAC and the added back we should not purge the wrapper.
@@ -1193,7 +1193,8 @@ VoltDBEngine::processCatalogAdditions(int64_t timestamp, bool updateReplicated,
                             ExportTupleStream *wrapper = m_exportingStreams[catalogTable->signature()];
                             if (wrapper == NULL) {
                                 wrapper = new ExportTupleStream(m_executorContext->m_partitionId,
-                                        m_executorContext->m_siteId, timestamp, catalogTable->signature());
+                                        m_executorContext->m_siteId, timestamp, catalogTable->signature(),
+                                        streamedTable->name(), streamedTable->getColumnNames());
                                 m_exportingStreams[catalogTable->signature()] = wrapper;
                             } else {
                                 //If stream was altered in UAC and the added back we should not purge the wrapper.
@@ -2230,7 +2231,8 @@ int VoltDBEngine::getStats(int selector, int locators[], int numLocators,
 
     for (int ii = 0; ii < numLocators; ii++) {
         CatalogId locator = static_cast<CatalogId>(locators[ii]);
-        if ( ! getTableById(locator)) {
+        Table* t = getTableById(locator);
+        if (!t) {
             char message[256];
             snprintf(message, 256,  "getStats() called with selector %d, and"
                     " an invalid locator %d that does not correspond to"
@@ -2238,7 +2240,11 @@ int VoltDBEngine::getStats(int selector, int locators[], int numLocators,
             throw SerializableEEException(VOLT_EE_EXCEPTION_TYPE_EEEXCEPTION,
                                           message);
         }
-        locatorIds.push_back(locator);
+        auto streamTable = dynamic_cast<StreamedTable*>(t);
+        if (streamTable == NULL || streamTable->getWrapper() == NULL) {
+            // skip stats for stream tables with ExportTupleStreams
+            locatorIds.push_back(locator);
+        }
     }
     size_t lengthPosition = m_resultOutput.reserveBytes(sizeof(int32_t));
 
@@ -2613,13 +2619,12 @@ void VoltDBEngine::collectDRTupleStreamStateInfo() {
 }
 
 int64_t VoltDBEngine::applyBinaryLog(int64_t txnId,
-                                  int64_t spHandle,
-                                  int64_t lastCommittedSpHandle,
-                                  int64_t uniqueId,
-                                  int32_t remoteClusterId,
-                                  int32_t remotePartitionId,
-                                  int64_t undoToken,
-                                  const char *log) {
+        int64_t spHandle,
+        int64_t lastCommittedSpHandle,
+        int64_t uniqueId,
+        int32_t remoteClusterId,
+        int64_t undoToken,
+        const char *logs) {
     DRTupleStreamDisableGuard guard(m_executorContext, !m_isActiveActiveDREnabled);
     setUndoToken(undoToken);
     m_executorContext->setupForPlanFragments(getCurrentUndoQuantum(),
@@ -2628,29 +2633,13 @@ int64_t VoltDBEngine::applyBinaryLog(int64_t txnId,
                                              lastCommittedSpHandle,
                                              uniqueId,
                                              false);
-    // If using replicated stream (drProtocolVersion < NO_REPLICATED_STREAM_PROTOCOL_VERSION), coordinate on stream 16383
-    // If not using replicated stream (drProtocolVersion >= NO_REPLICATED_STREAM_PROTOCOL_VERSION), coordinate on stream 0
-    // Coordination is needed in both cases for replicate table.
-    // The stream with replicated table changes will be executed firstly on lowest side. Then other sites took other changes.
-    // The actual skip of replicated table DRRecord happens inside BinaryLogSink.
-
     // Notice: We now get the consumer drProtocolVersion from its producer side (m_drStream).
     // This assumes that all consumers use same protocol as its producer.
     // However, once we start supporting promote dr protocol (e.g. upgrade dr protocol via promote event from one coordinator cluster),
     // the coordinate cluster's consumer sides could operate in different protocols.
     // At that time, we need explicity pass in the consumer side protocol version for deciding weather
     // its corresponding remote producer has replicated stream or not.
-    bool onLowestSite = false;
-    int32_t replicatedTableStreamId = m_drStream->drProtocolVersion() < DRTupleStream::NO_REPLICATED_STREAM_PROTOCOL_VERSION ? 16383 : 0;
-    if (UniqueId::isMpUniqueId(uniqueId) && (remotePartitionId == replicatedTableStreamId)) {
-        VOLT_TRACE("applyBinaryLogMP for replicated table");
-        onLowestSite = SynchronizedThreadLock::countDownGlobalTxnStartCount(isLowestSite());
-    }
-    int64_t rowCount = m_wrapper.apply(log, m_tablesBySignatureHash, &m_stringPool, this, remoteClusterId, uniqueId);
-    if (onLowestSite) {
-        SynchronizedThreadLock::signalLowestSiteFinished();
-    }
-    return rowCount;
+    return m_wrapper.apply(logs, m_tablesBySignatureHash, &m_stringPool, this, remoteClusterId, uniqueId);
 }
 
 void VoltDBEngine::executeTask(TaskType taskType, ReferenceSerializeInputBE &taskInfo) {
@@ -2676,13 +2665,7 @@ void VoltDBEngine::executeTask(TaskType taskType, ReferenceSerializeInputBE &tas
     case TASK_TYPE_SET_DR_PROTOCOL_VERSION: {
         uint8_t drProtocolVersion = static_cast<uint8_t >(taskInfo.readInt());
         // create or delete dr replicated stream as needed
-        if (drProtocolVersion >= DRTupleStream::NO_REPLICATED_STREAM_PROTOCOL_VERSION &&
-                m_drReplicatedStream != NULL) {
-            delete m_drReplicatedStream;
-            m_drReplicatedStream = NULL;
-        }
-        else if (drProtocolVersion < DRTupleStream::NO_REPLICATED_STREAM_PROTOCOL_VERSION &&
-                m_drReplicatedStream == NULL && m_isLowestSite) {
+        if (m_drReplicatedStream == NULL && m_isLowestSite) {
             m_drReplicatedStream = new DRTupleStream(16383, m_drStream->m_defaultCapacity, drProtocolVersion);
         }
         m_drStream->setDrProtocolVersion(drProtocolVersion);

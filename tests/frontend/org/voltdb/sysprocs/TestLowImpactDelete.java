@@ -23,17 +23,7 @@
 
 package org.voltdb.sysprocs;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -47,15 +37,12 @@ import org.voltdb.client.ClientResponse;
 import org.voltdb.client.NoConnectionsException;
 import org.voltdb.client.ProcCallException;
 import org.voltdb.compiler.VoltProjectBuilder;
-import org.voltdb.export.ExportDataProcessor;
 import org.voltdb.regressionsuites.LocalCluster;
 import org.voltdb.types.TimestampType;
+
 import junit.framework.TestCase;
 
 public class TestLowImpactDelete extends TestCase {
-
-    private ServerListener m_serverSocket;
-    private final List<ClientConnectionHandler> m_clients = Collections.synchronizedList(new ArrayList<ClientConnectionHandler>());
 
     LocalCluster m_cluster = null;
     Client m_client = null;
@@ -65,7 +52,7 @@ public class TestLowImpactDelete extends TestCase {
     static int MAX_FREQUENCEY = 1;
     static int INTERVAL = 1;
     @Before
-    public void setUp() throws Exception {
+    public void setUp() throws IOException {
         String testSchema =
                 "CREATE TABLE part (\n"
               + "    id BIGINT not null, \n"
@@ -84,16 +71,6 @@ public class TestLowImpactDelete extends TestCase {
               + "PARTITION TABLE ttl ON COLUMN id;"
               + "CREATE INDEX ttlindex ON ttl (ts);"
 
-              + "CREATE TABLE nibbleExport (\n"
-              + "    id BIGINT not null, \n"
-              + "    ts TIMESTAMP not null, "
-              + "    exported SMALLINT default 0, "
-              + "    PRIMARY KEY (id) \n"
-              + " ) USING TTL 10 SECONDS ON COLUMN TS BATCH_SIZE 10 MAX_FREQUENCY 3 STREAM exportData; \n"
-              + "PARTITION TABLE nibbleExport ON COLUMN id;"
-              + "CREATE INDEX nibbleExportindex ON nibbleExport (ts, exported);"
-              + "CREATE STREAM exportData PARTITION ON COLUMN ID ( id BIGINT not null , ts TIMESTAMP not null);"
-
               + "CREATE TABLE rep (\n"
               + "    id BIGINT not null, \n"
               + "    ts TIMESTAMP, \n"
@@ -109,19 +86,8 @@ public class TestLowImpactDelete extends TestCase {
         builder.addStmtProcedure("repcount", "select count(*) from rep;");
         builder.addStmtProcedure("ttlcount", "select count(*) from ttl;");
         builder.setUseDDLSchema(true);
-
-        Properties props = new Properties();
-        props.put("replicated", "false");
-        props.put("skipinternals", "true");
-        builder.addExport(true, "custom", props);
-
-
-        System.setProperty(ExportDataProcessor.EXPORT_TO_TYPE, "org.voltdb.exportclient.SocketExporter");
-        Map<String, String> additionalEnv = new HashMap<String, String>();
-        additionalEnv.put(ExportDataProcessor.EXPORT_TO_TYPE, "org.voltdb.exportclient.SocketExporter");
-
-        m_cluster = new LocalCluster("foo.jar", SPH, HOSTCOUNT, KFACTOR, BackendTarget.NATIVE_EE_JNI, additionalEnv);
-        m_cluster.setHasLocalServer(false);
+        m_cluster = new LocalCluster("foo.jar", SPH, HOSTCOUNT, KFACTOR, BackendTarget.NATIVE_EE_JNI);
+        m_cluster.setHasLocalServer(true);
         m_cluster.compile(builder);
         m_cluster.startUp();
 
@@ -221,7 +187,7 @@ public class TestLowImpactDelete extends TestCase {
     public void testMissingTable() throws Exception {
         // fail on missing table
         try {
-            m_client.callProcedure("@LowImpactDelete", "notable", "nocolumn", "75", "<", 1000, 2000, MAX_FREQUENCEY, INTERVAL);
+            m_client.callProcedure("@LowImpactDeleteNT", "notable", "nocolumn", "75", "<", 1000, 2000, MAX_FREQUENCEY, INTERVAL);
             fail();
         }
         catch (ProcCallException e) {
@@ -233,7 +199,7 @@ public class TestLowImpactDelete extends TestCase {
 
         // fail on missing column
         try {
-            m_client.callProcedure("@LowImpactDelete", "foo", "nocolumn", "75", "<", 1000, 2000, MAX_FREQUENCEY, INTERVAL);
+            m_client.callProcedure("@LowImpactDeleteNT", "foo", "nocolumn", "75", "<", 1000, 2000, MAX_FREQUENCEY, INTERVAL);
             fail();
         }
         catch (ProcCallException e) {
@@ -242,7 +208,7 @@ public class TestLowImpactDelete extends TestCase {
 
         // fail on improper type
         try {
-            m_client.callProcedure("@LowImpactDelete", "foo", "a", "stringdata", "<", 1000, 2000, MAX_FREQUENCEY, INTERVAL);
+            m_client.callProcedure("@LowImpactDeleteNT", "foo", "a", "stringdata", "<", 1000, 2000, MAX_FREQUENCEY, INTERVAL);
             fail();
         }
         catch (ProcCallException e) {
@@ -258,14 +224,14 @@ public class TestLowImpactDelete extends TestCase {
         VoltTable inputTable = createTable(numberOfItems, 0, 0, 0, 0);
         loadTable(m_client, "part", false, inputTable);
         loadTable(m_client, "rep", true, inputTable);
-        ClientResponse response = m_client.callProcedure("@LowImpactDelete", "part", "ts", "9000", "<", 500, 1000 * 1000, MAX_FREQUENCEY, INTERVAL);
+        ClientResponse response = m_client.callProcedure("@LowImpactDeleteNT", "part", "ts", "9000", "<", 500, 1000 * 1000, MAX_FREQUENCEY, INTERVAL);
         VoltTable result = response.getResults()[0];
         assertEquals(1, result.getRowCount());
         result.advanceRow();
         long deleted = result.getLong("ROWS_DELETED");
         assertTrue (deleted == 1500);
 
-        response = m_client.callProcedure("@LowImpactDelete", "rep", "ts", "9000", "<", 500, 1000 * 1000, MAX_FREQUENCEY, INTERVAL);
+        response = m_client.callProcedure("@LowImpactDeleteNT", "rep", "ts", "9000", "<", 500, 1000 * 1000, MAX_FREQUENCEY, INTERVAL);
         result = response.getResults()[0];
         assertEquals(1, result.getRowCount());
         result.advanceRow();
@@ -306,7 +272,7 @@ public class TestLowImpactDelete extends TestCase {
             while (now < end) {
                 ClientResponse response = null;
                 try {
-                    response = m_client.callProcedure("@LowImpactDelete", "part", "ts", "1000000000", "<", 10000, 1000 * 1000, 4, INTERVAL);
+                    response = m_client.callProcedure("@LowImpactDeleteNT", "part", "ts", "1000000000", "<", 10000, 1000 * 1000, 4, INTERVAL);
                 } catch (NoConnectionsException e) {
                     e.printStackTrace();
                 } catch (IOException e) {
@@ -374,112 +340,6 @@ public class TestLowImpactDelete extends TestCase {
             assertEquals(0, vt.asScalarLong());
         } catch (Exception e) {
             fail("Failed to get row count from Table ttl:" + e.getMessage());
-        }
-    }
-
-    @Test
-    public void testNibbleExport() throws InterruptedException, IOException {
-        m_serverSocket = new ServerListener(5001);
-        m_serverSocket.start();
-
-        //load 200 rows
-        for (int i = 0; i < 200; i++) {
-            try {
-                m_client.callProcedure("@AdHoc", "INSERT INTO nibbleExport(id, ts) VALUES(" + i + ",CURRENT_TIMESTAMP())");
-            } catch (IOException | ProcCallException e) {
-                fail("fail to insert data for TTL testing.");
-            }
-        }
-        //allow TTL to work, the inserted rows should be deleted after 10 seconds
-        try {
-            System.out.println("inserted 200 rows.");
-            Thread.sleep(60*1000);
-            VoltTable vt = m_client.callProcedure("@AdHoc", "select count(*) from nibbleExport where EXPORTED=1").getResults()[0];
-            assertEquals(200, vt.asScalarLong());
-
-            for (int i = 200; i < 500; i++) {
-                try {
-                    m_client.callProcedure("@AdHoc", "INSERT INTO nibbleExport(id,ts) VALUES(" + i + ",CURRENT_TIMESTAMP())");
-                } catch (IOException | ProcCallException e) {
-                    fail("fail to insert data for TTL testing.");
-                }
-            }
-            Thread.sleep(60*1000);
-            vt = m_client.callProcedure("@AdHoc", "select count(*) from nibbleExport where EXPORTED=1").getResults()[0];
-            assertEquals(500, vt.asScalarLong());
-        } catch (Exception e) {
-            fail("Failed to get row count from Table ttl:" + e.getMessage());
-        }
-
-        m_serverSocket.close();
-        m_serverSocket = null;
-        for (ClientConnectionHandler s : m_clients) {
-            s.stopClient();
-        }
-
-        m_clients.clear();
-    }
-
-    class ServerListener extends Thread {
-        private ServerSocket ssocket;
-        private boolean shuttingDown = false;
-        public ServerListener(int port) {
-            try {
-                ssocket = new ServerSocket(port);
-            } catch (IOException ex) {
-                ex.printStackTrace();
-            }
-        }
-
-        public void close() throws IOException {
-            shuttingDown = true;
-            ssocket.close();
-            ssocket = null;
-        }
-
-        @Override
-        public void run() {
-            while (!shuttingDown) {
-                try {
-                    Socket clientSocket = ssocket.accept();
-                    ClientConnectionHandler ch = new ClientConnectionHandler(clientSocket);
-                    m_clients.add(ch);
-                    ch.start();
-                } catch (IOException ex) {
-                    break;
-                }
-            }
-        }
-    }
-
-   class ClientConnectionHandler extends Thread {
-        private final Socket m_clientSocket;
-        private boolean m_closed = false;
-        public ClientConnectionHandler(Socket clientSocket) {
-            m_clientSocket = clientSocket;
-        }
-
-        @Override
-        public void run() {
-            try {
-                while (!m_closed) {
-                    BufferedReader in = new BufferedReader(
-                            new InputStreamReader(m_clientSocket.getInputStream()));
-                    while (!m_closed) {
-                        String line = in.readLine();
-                        if (line == null) {
-                            break;
-                        }
-                        System.out.println("exported......" + line);
-                    }
-                    m_clientSocket.close();
-                }
-            } catch (IOException ioe) {
-            }
-        }
-
-        public void stopClient() {
-            m_closed = true;
         }
     }
 }

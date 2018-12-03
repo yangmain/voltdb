@@ -24,6 +24,7 @@ import java.util.concurrent.ExecutionException;
 import org.apache.zookeeper_voltpatches.KeeperException;
 import org.apache.zookeeper_voltpatches.ZooKeeper;
 import org.voltcore.messaging.HostMessenger;
+import org.voltcore.messaging.TransactionInfoBaseMessage;
 import org.voltcore.utils.CoreUtils;
 import org.voltcore.zk.LeaderElector;
 import org.voltdb.BackendTarget;
@@ -79,7 +80,7 @@ public class MpInitiator extends BaseInitiator implements Promotable
         throws KeeperException, InterruptedException, ExecutionException
     {
         // note the mp initiator always uses a non-ipc site, even though it's never used for anything
-        if ((backend == BackendTarget.NATIVE_EE_IPC) || (backend == BackendTarget.NATIVE_EE_VALGRIND_IPC)) {
+        if (backend.isValgrindTarget) {
             backend = BackendTarget.NATIVE_EE_JNI;
         }
 
@@ -159,7 +160,9 @@ public class MpInitiator extends BaseInitiator implements Promotable
                             throw new RuntimeException("Failing promoted MPI node with unresolvable repair condition.");
                         }
                         tmLog.debug(m_whoami + " restarting MP transaction: " + restartTxns.get(0));
-                        m_initiatorMailbox.repairReplicasWith(null, restartTxns.get(0));
+                        Iv2InitiateTaskMessage firstMsg = restartTxns.get(0);
+                        assert(firstMsg.getTruncationHandle() == TransactionInfoBaseMessage.UNUSED_TRUNC_HANDLE);
+                        m_initiatorMailbox.repairReplicasWith(null, firstMsg);
                     }
                     tmLog.info(m_whoami
                              + "finished leader promotion. Took "

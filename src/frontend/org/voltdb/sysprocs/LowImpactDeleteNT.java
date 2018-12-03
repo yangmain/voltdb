@@ -42,7 +42,7 @@ import org.voltdb.catalog.Table;
 import org.voltdb.client.ClientResponse;
 import org.voltdb.client.ClientResponseWithPartitionKey;
 
-public class LowImpactDelete extends VoltNTSystemProcedure {
+public class LowImpactDeleteNT extends VoltNTSystemProcedure {
     VoltLogger hostLog = new VoltLogger("HOST");
 
     public static enum ComparisonOperation {
@@ -148,8 +148,7 @@ public class LowImpactDelete extends VoltNTSystemProcedure {
                 try {
                     cr = cf.get(ONE, TimeUnit.MINUTES);
                 } catch (Exception e) {
-                    return new NibbleStatus(-1, rowsJustDeleted, "Received exception while waiting response back "
-                            + "from smart delete system procedure:" + e.getMessage());
+                    return new NibbleStatus(-1, rowsJustDeleted, "TTL system procedure task failed after timeout (60 seconds)");
                 }
                 ClientResponseImpl cri = (ClientResponseImpl) cr;
                 switch(cri.getStatus()) {
@@ -180,8 +179,7 @@ public class LowImpactDelete extends VoltNTSystemProcedure {
             try {
                 crs = pf.get(ONE, TimeUnit.MINUTES);
             } catch (Exception e) {
-                return new NibbleStatus(-1, rowsJustDeleted, "Received exception while waiting response back "
-                        + "from smart delete system procedure:" + e.getMessage());
+                return new NibbleStatus(-1, rowsJustDeleted, "TTL system procedure task failed after timeout (60 seconds)");
             }
 
             for (ClientResponseWithPartitionKey crwp : crs) {
@@ -204,8 +202,16 @@ public class LowImpactDelete extends VoltNTSystemProcedure {
         return new NibbleStatus(rowsLeft, rowsJustDeleted, "");
     }
 
-    public VoltTable run(String tableName, String columnName, String valueStr, String comparisonOp, long chunksize, long timeoutms, long maxFrequency, long interval) {
-
+    public VoltTable run(
+            String tableName,
+            String columnName,
+            String valueStr,
+            String comparisonOp,
+            long chunksize,
+            long timeoutms,
+            long maxFrequency,
+            long interval)
+    {
         VoltTable returnTable = new VoltTable(new ColumnInfo("ROWS_DELETED", VoltType.BIGINT),
                                 new ColumnInfo("ROWS_LEFT", VoltType.BIGINT),
                                 new ColumnInfo("DELETED_LAST_ROUND", VoltType.BIGINT),
@@ -222,7 +228,13 @@ public class LowImpactDelete extends VoltNTSystemProcedure {
         Object value = getValidatedValue(colType, valueStr);
 
         // always run nibble delete at least once
-        NibbleStatus status = runNibbleDeleteOperation(tableName, columnName, comparisonOp, value, chunksize, catTable.getIsreplicated());
+        NibbleStatus status = runNibbleDeleteOperation(
+                    tableName,
+                    columnName,
+                    comparisonOp,
+                    value,
+                    chunksize,
+                    catTable.getIsreplicated());
         long rowsLeft = status.rowsLeft;
         // If any partition receive failure, report the delete status plus the error message back.
         if (!status.errorMessages.isEmpty()) {
@@ -230,25 +242,23 @@ public class LowImpactDelete extends VoltNTSystemProcedure {
                     ClientResponse.GRACEFUL_FAILURE, status.errorMessages);
             return returnTable;
         }
-
         // handle the case where we're jammed from the start (no rows deleted)
         if (status.rowsJustDeleted == 0 && status.rowsLeft > 0) {
             throw new VoltAbortException(String.format(
                     "While removing tuples from table %s, first delete deleted zero tuples while %d"
-                  + " still met the criteria for delete. This is unexpected, but doesn't imply corrupt state.",
+                    + " still met the criteria for delete. This is unexpected, but doesn't imply corrupt state.",
                     catTable.getTypeName(), rowsLeft));
         }
 
-        int attemptsLeft = (int)Math.min((long)Math.ceil((double)rowsLeft/(double)chunksize), maxFrequency) - 1;
-        // no more try
-        if (attemptsLeft < 1) {
+        int attemptsLeft = (int)Math.min((long)Math.ceil((double)rowsLeft/(double)chunksize), (maxFrequency-1));
+        if (attemptsLeft == 0) {
             returnTable.addRow(status.rowsJustDeleted, rowsLeft, status.rowsJustDeleted, System.currentTimeMillis(),
                     ClientResponse.SUCCESS, "");
             return returnTable;
         }
 
         //spread additional deletes within the interval
-        long delay = TimeUnit.SECONDS.toMillis(interval)/attemptsLeft;
+        long delay = interval/attemptsLeft;
         ScheduledExecutorService es = Executors.newSingleThreadScheduledExecutor(CoreUtils.getThreadFactory("TTLDeleter"));
         CountDownLatch latch = new CountDownLatch(attemptsLeft);
         String[] errors = new String[attemptsLeft];
@@ -261,13 +271,19 @@ public class LowImpactDelete extends VoltNTSystemProcedure {
             }
             @Override
             public void run() {
-                NibbleStatus thisStatus = runNibbleDeleteOperation(tableName, columnName, comparisonOp, value, chunksize, catTable.getIsreplicated());
+                NibbleStatus thisStatus = runNibbleDeleteOperation(
+                        tableName,
+                        columnName,
+                        comparisonOp,
+                        value,
+                        chunksize,
+                        catTable.getIsreplicated());
                 if (!thisStatus.errorMessages.isEmpty()) {
-                    errors[attempt-1] = thisStatus.errorMessages;
+                    errors[attempt] = thisStatus.errorMessages;
                     success.set(false);
                 } else {
                     status.rowsDeleted.addAndGet(thisStatus.rowsJustDeleted);
-                    if (attempt == attemptsLeft) {
+                    if (attempt == (attemptsLeft-1)) {
                         status.rowsLeft = thisStatus.rowsLeft;
                         status.rowsJustDeleted = thisStatus.rowsJustDeleted;
                     }
@@ -280,8 +296,8 @@ public class LowImpactDelete extends VoltNTSystemProcedure {
         }
         status.rowsLeft = 0;
         status.rowsJustDeleted = 0;
-        int attempts = 1;
-        while (attempts <= attemptsLeft) {
+        int attempts = 0;
+        while (attempts < attemptsLeft) {
             DeleteTask task = new DeleteTask(attempts);
             es.schedule(task, delay * attempts, TimeUnit.MILLISECONDS);
             attempts++;
@@ -294,8 +310,13 @@ public class LowImpactDelete extends VoltNTSystemProcedure {
             es.shutdownNow();
         }
 
-        returnTable.addRow(status.rowsDeleted, status.rowsLeft, status.rowsJustDeleted, System.currentTimeMillis(),
-                success.get() ? ClientResponse.SUCCESS : ClientResponse.GRACEFUL_FAILURE, Arrays.toString(errors));
+        returnTable.addRow(
+                status.rowsDeleted,
+                status.rowsLeft,
+                status.rowsJustDeleted,
+                System.currentTimeMillis(),
+                success.get() ? ClientResponse.SUCCESS : ClientResponse.GRACEFUL_FAILURE,
+                success.get() ? "" : Arrays.toString(errors));
         return returnTable;
     }
 }
