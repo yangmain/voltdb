@@ -3038,8 +3038,8 @@ template <TupleSerializationFormat F, Endianess E> inline void NValue::deseriali
         if (type != VALUE_TYPE_GEOGRAPHY) {
             // This advances input past the end of the string
             const char *data = reinterpret_cast<const char*>(input.getRawPointer(length));
-            sref = StringRef::create(length, data, tempPool);
             checkTooWideForVariableLengthType(type, data, length, maxLength, isInBytes);
+            sref = StringRef::create(length, data, tempPool);
         }
         else {
             // This gets a pointer to the start of data without advancing
@@ -3944,7 +3944,19 @@ inline NValue NValue::like(const NValue& rhs) const {
                     }
 
                     const char *postPercentPatternIterator = m_pattern.getCursor();
-                    const uint32_t nextPatternCodePointAfterPercent = m_pattern.extractCodePoint();
+                    uint32_t nextPatternCodePointAfterPercent = m_pattern.extractCodePoint();
+
+                    // ENG-14485 handle two or more consecutive '%' characters at the end of the pattern
+                    if (m_value.atEnd()) {
+                        while (nextPatternCodePointAfterPercent == '%') {
+                            if (m_pattern.atEnd()) {
+                                return true;
+                            }
+                            nextPatternCodePointAfterPercent = m_pattern.extractCodePoint();
+                        }
+                        return false;
+                    }
+
                     const bool nextPatternCodePointAfterPercentIsSpecial =
                             (nextPatternCodePointAfterPercent == '_') ||
                             (nextPatternCodePointAfterPercent == '%');

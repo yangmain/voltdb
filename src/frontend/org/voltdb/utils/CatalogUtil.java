@@ -152,6 +152,7 @@ import org.voltdb.settings.DbSettings;
 import org.voltdb.settings.NodeSettings;
 import org.voltdb.snmp.DummySnmpTrapSender;
 import org.voltdb.types.ConstraintType;
+import org.voltdb.types.ExpressionType;
 import org.xml.sax.SAXException;
 
 import com.google_voltpatches.common.base.Charsets;
@@ -187,6 +188,7 @@ public abstract class CatalogUtil {
     public static final String DEFAULT_DR_CONFLICTS_NONCE = "LOG";
     public static final String DEFAULT_DR_CONFLICTS_DIR = "xdcr_conflicts";
     public static final String DR_HIDDEN_COLUMN_NAME = "dr_clusterid_timestamp";
+    public static final String VIEW_HIDDEN_COLUMN_NAME = "count_star";
 
     final static Pattern JAR_EXTENSION_RE  = Pattern.compile("(?:.+)\\.jar/(?:.+)" ,Pattern.CASE_INSENSITIVE);
     public final static Pattern XML_COMMENT_RE = Pattern.compile("<!--.+?-->",Pattern.MULTILINE|Pattern.DOTALL);
@@ -194,6 +196,8 @@ public abstract class CatalogUtil {
 
     public static final VoltTable.ColumnInfo DR_HIDDEN_COLUMN_INFO =
             new VoltTable.ColumnInfo(DR_HIDDEN_COLUMN_NAME, VoltType.BIGINT);
+    public static final VoltTable.ColumnInfo VIEW_HIDDEN_COLUMN_INFO =
+            new VoltTable.ColumnInfo(VIEW_HIDDEN_COLUMN_NAME, VoltType.BIGINT);
 
     public static final String ROW_LENGTH_LIMIT = "row.length.limit";
     public static final int EXPORT_INTERNAL_FIELD_Length = 41; // 8 * 5 + 1;
@@ -370,6 +374,33 @@ public abstract class CatalogUtil {
         }
 
         return jarfile;
+    }
+
+    /**
+     * Tell if a table is a single table view without a COUNT(*) column.
+     * In that case, the table will have a hidden COUNT(*) column which we need to
+     * include in the snapshot.
+     * @param table The table to check.
+     * @return true if we need to snapshot a hidden COUNT(*) column.
+     */
+    public static boolean needsViewHiddenColumn(Table table) {
+        // The table must be a view, and it can only have one source table.
+        // We do not care if the source table is persistent or streamed.
+
+        // If the table is not a materialized view, skip.
+        if (table.getMaterializer() == null) {
+            return false;
+        }
+
+        // If the table is a materialized view, then search if there is a COUNT(*) column.
+        // We only allow the users to omit the COUNT(*) column if the view is built on
+        // one single table. So we do not check again here.
+        for (Column c : table.getColumns()) {
+            if (ExpressionType.get(c.getAggregatetype()) == ExpressionType.AGGREGATE_COUNT_STAR) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -2643,6 +2674,41 @@ public abstract class CatalogUtil {
             tables.add(table);
         }
         return new Pair<List<Table>, Set<String>>(tables, optionalTableNames);
+    }
+
+    /**
+     * Get all normal tables from the catalog. A normal table is one that's NOT a materialized
+     * view, nor an export table. For the lack of a better name, I call it normal.
+     * @param catalog         Catalog database
+     * @param isReplicated    true to return only replicated tables,
+     *                        false to return all partitioned tables
+     * @return A list of tables
+     */
+    public static List<Table> getNormalTables(Database catalog, boolean isReplicated) {
+        List<Table> tables = new ArrayList<>();
+        for (Table table : catalog.getTables()) {
+            if ((table.getIsreplicated() == isReplicated) &&
+                    table.getMaterializer() == null &&
+                    !CatalogUtil.isTableExportOnly(catalog, table)) {
+                tables.add(table);
+                continue;
+            }
+            //Handle views which are on STREAM only partitioned STREAM allow view and must have partition
+            //column as part of view.
+            if ((table.getMaterializer() != null) && !isReplicated
+                    && (CatalogUtil.isTableExportOnly(catalog, table.getMaterializer()))) {
+                //Non partitioned export table are not allowed so it should not get here.
+                Column bpc = table.getMaterializer().getPartitioncolumn();
+                if (bpc != null) {
+                    String bPartName = bpc.getName();
+                    Column pc = table.getColumns().get(bPartName);
+                    if (pc != null) {
+                        tables.add(table);
+                    }
+                }
+            }
+        }
+        return tables;
     }
 
     /**

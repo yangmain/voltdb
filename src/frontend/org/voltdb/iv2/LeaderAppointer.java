@@ -20,6 +20,7 @@ package org.voltdb.iv2;
 import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -35,6 +36,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.apache.zookeeper_voltpatches.CreateMode;
 import org.apache.zookeeper_voltpatches.KeeperException;
 import org.apache.zookeeper_voltpatches.WatchedEvent;
 import org.apache.zookeeper_voltpatches.Watcher;
@@ -98,7 +100,7 @@ public class LeaderAppointer implements Promotable
     private final boolean m_expectingDrSnapshot;
     private final AtomicBoolean m_snapshotSyncComplete = new AtomicBoolean(false);
     private final KSafetyStats m_stats;
-
+    private static final String WHOMIM = "[LeaderAppointer]";
     /*
      * Track partitions that are cleaned up during election/promotion etc.
      * This eliminates the race where the cleanup occurs while constructing babysitters
@@ -117,6 +119,8 @@ public class LeaderAppointer implements Promotable
         final int m_partitionId;
         final Set<Long> m_replicas;
         long m_currentLeader;
+        long m_previousLeader = Long.MAX_VALUE;
+        boolean m_isLeaderMigrated = false;
 
         //A candidate to host partition leader when nodes are down
         //It is calculated when nodes are down.
@@ -150,12 +154,12 @@ public class LeaderAppointer implements Promotable
             Set<Long> missingHSIds = new HashSet<Long>(m_replicas);
             missingHSIds.removeAll(updatedHSIds);
             if (tmLog.isDebugEnabled()) {
-                tmLog.debug("Newly dead replicas: " + CoreUtils.hsIdCollectionToString(missingHSIds));
-                tmLog.debug("Handling babysitter callback for partition " + m_partitionId + ": children: " + CoreUtils.hsIdCollectionToString(updatedHSIds));
+                tmLog.debug(WHOMIM + "Newly dead replicas: " + CoreUtils.hsIdCollectionToString(missingHSIds));
+                tmLog.debug(WHOMIM + "Handling babysitter callback for partition " + m_partitionId + ": children: " + CoreUtils.hsIdCollectionToString(updatedHSIds));
                 // compute previously unseen HSId set in the callback list
                 Set<Long> newHSIds = new HashSet<Long>(updatedHSIds);
                 newHSIds.removeAll(m_replicas);
-                tmLog.debug(String.format("Newly seen replicas:%s, Newly dead replicas:%s", CoreUtils.hsIdCollectionToString(newHSIds),
+                tmLog.debug(String.format(WHOMIM + "Newly seen replicas:%s, Newly dead replicas:%s", CoreUtils.hsIdCollectionToString(newHSIds),
                         CoreUtils.hsIdCollectionToString(missingHSIds)));
             }
             if (m_state.get() == AppointerState.CLUSTER_START) {
@@ -201,10 +205,13 @@ public class LeaderAppointer implements Promotable
                 if (children.size() == replicaCount) {
                     m_currentLeader = assignLeader(m_partitionId, Long.MAX_VALUE, updatedHSIds);
                 } else {
-                    tmLog.info("Waiting on " + ((m_kfactor + 1) - children.size()) + " more nodes " +
+                    tmLog.info(WHOMIM + "Waiting on " + ((m_kfactor + 1) - children.size()) + " more nodes " +
                             "for k-safety before startup");
                 }
             } else {
+                if (tmLog.isDebugEnabled()) {
+                    tmLog.debug(WHOMIM + "Leader election callback for partition " + m_partitionId);
+                }
                  // Check for k-safety
                 if (!isClusterKSafe(null)) {
                     VoltDB.crashGlobalVoltDB("Some partitions have no replicas.  Cluster has become unviable.",
@@ -225,12 +232,26 @@ public class LeaderAppointer implements Promotable
                 }
                 // If we survived the above gauntlet of fail, appoint a new leader for this partition.
                 if (missingHSIds.contains(m_currentLeader)) {
+                    final long currentLeader = m_currentLeader;
                     m_currentLeader = assignLeader(m_partitionId, m_currentLeader, updatedHSIds);
+                    if (tmLog.isDebugEnabled()) {
+                        tmLog.debug(WHOMIM + "Determining new leader when missing for partition " + m_partitionId +
+                                " current leader:" + CoreUtils.hsIdToString(currentLeader) +
+                                " to " + CoreUtils.hsIdToString(m_currentLeader) + " from " +
+                                CoreUtils.hsIdCollectionToString(updatedHSIds));
+                    }
                 }
                 // If this partition doesn't have a leader yet, and we have new replicas added,
                 // elect a leader.
                 if (m_currentLeader == Long.MAX_VALUE && !updatedHSIds.isEmpty()) {
+                    final long currentLeader = m_currentLeader;
                     m_currentLeader = assignLeader(m_partitionId, Long.MAX_VALUE, updatedHSIds);
+                    if (tmLog.isDebugEnabled()) {
+                        tmLog.debug(WHOMIM + "Determining new leader with no leader yet for partition " + m_partitionId +
+                                " current leader:" + CoreUtils.hsIdToString(currentLeader) +
+                                " to " + CoreUtils.hsIdToString(m_currentLeader) + " from " +
+                                CoreUtils.hsIdCollectionToString(updatedHSIds));
+                    }
                 }
             }
             m_replicas.clear();
@@ -262,8 +283,10 @@ public class LeaderAppointer implements Promotable
             } else {
                 // promote new partition leader when nodes are down
                 masterHostId = newLeaderHostId;
-                tmLog.debug("[assignLeader]moving leader of partition " + m_partitionId + " to host " + newLeaderHostId + " ["
-                        + CoreUtils.hsIdCollectionToString(children) + "]");
+                if (tmLog.isDebugEnabled()) {
+                    tmLog.debug(WHOMIM + "moving leader of partition " + m_partitionId + " to host " + newLeaderHostId + " ["
+                            + CoreUtils.hsIdCollectionToString(children) + "]");
+                }
                 newLeaderHostId = -1;
             }
 
@@ -274,14 +297,18 @@ public class LeaderAppointer implements Promotable
                     break;
                 }
             }
-            if (prevLeader == Long.MAX_VALUE) {
-                tmLog.info("Appointing HSId " + CoreUtils.hsIdToString(masterHSId) + " as leader for partition " +
-                        partitionId);
+
+            // If the current leader is appointed via leader migration, then re-appoint it if possible
+            if (m_isLeaderMigrated && m_previousLeader != Long.MAX_VALUE && children.contains(m_previousLeader)) {
+                masterHSId = m_previousLeader;
+                tmLog.info(WHOMIM + " Previous leader " + CoreUtils.hsIdToString(masterHSId) + " for partition " +
+                        partitionId + " was appointed via leader migration.");
             }
-            else {
-                tmLog.info("Appointing HSId " + CoreUtils.hsIdToString(masterHSId) + " as leader (Previous Leader was HSId " +
-                        CoreUtils.hsIdToString(prevLeader) + ") for partition " + partitionId);
-            }
+
+            tmLog.info(WHOMIM + "Appointing HSId " + CoreUtils.hsIdToString(masterHSId) + " as leader for partition " + partitionId +
+                    " Previous Leader:" + ((prevLeader == Long.MAX_VALUE) ? " none" :
+                        CoreUtils.hsIdToString(prevLeader)));
+
             String masterPair = Long.toString(prevLeader) + "/" + Long.toString(masterHSId);
             try {
                 m_iv2appointees.put(partitionId, masterPair);
@@ -292,9 +319,8 @@ public class LeaderAppointer implements Promotable
         }
     }
 
-    /* We'll use this callback purely for startup so we can discover when all
-     * the leaders we have appointed have completed their promotions and
-     * published themselves to Zookeeper */
+    // Discover when all the leaders we have appointed have completed their promotions and
+    // published themselves to Zookeeper. Also update the partition leaders in PartitionCallback upon leader migration
     LeaderCache.Callback m_masterCallback = new LeaderCache.Callback()
     {
         @Override
@@ -303,7 +329,7 @@ public class LeaderAppointer implements Promotable
             if (m_state.get() == AppointerState.CLUSTER_START) {
                 try {
                     if (currentLeaders.size() == getInitialPartitionCount()) {
-                        tmLog.debug("Leader appointment complete, promoting MPI and unblocking.");
+                        tmLog.debug(WHOMIM + "Leader appointment complete, promoting MPI and unblocking.");
                         m_state.set(AppointerState.DONE);
                         m_MPI.acceptPromotion();
                         m_startupLatch.set(null);
@@ -315,7 +341,7 @@ public class LeaderAppointer implements Promotable
             } else {
                 // update partition call backs with correct current leaders after MigratePartitionLeader
                 for (Entry<Integer, LeaderCallBackInfo> entry: cache.entrySet()) {
-                    updatePartitionLeader(entry.getKey(), entry.getValue().m_HSId);
+                    updatePartitionLeader(entry.getKey(), entry.getValue().m_HSId, entry.getValue().m_isMigratePartitionLeaderRequested);
                 }
             }
         }
@@ -331,7 +357,7 @@ public class LeaderAppointer implements Promotable
                 {
                     try {
                         List<String> children = m_zk.getChildren(VoltZK.leaders_initiators, m_partitionCallback);
-                        tmLog.info("Noticed partition change " + children + ", " +
+                        tmLog.info(WHOMIM + "Noticed partition change " + children + ", " +
                                 "currenctly watching " + m_partitionWatchers.keySet());
                         for (String child : children) {
                             int pid = LeaderElector.getPartitionFromElectionDir(child);
@@ -339,7 +365,7 @@ public class LeaderAppointer implements Promotable
                                 watchPartition(pid, m_es, false);
                             }
                         }
-                        tmLog.info("Done " + m_partitionWatchers.keySet());
+                        tmLog.info(WHOMIM + "Done " + m_partitionWatchers.keySet());
                     } catch (Exception e) {
                         VoltDB.crashLocalVoltDB("Cannot read leader initiator directory", false, e);
                     }
@@ -431,7 +457,7 @@ public class LeaderAppointer implements Promotable
         // Figure out what conditions we assumed leadership under.
         if (appointees.size() == 0)
         {
-            tmLog.debug("LeaderAppointer in startup");
+            tmLog.debug(WHOMIM + "LeaderAppointer in startup");
             m_state.set(AppointerState.CLUSTER_START);
         }
         //INIT is the default before promotion at runtime. Don't do this startup check
@@ -452,7 +478,7 @@ public class LeaderAppointer implements Promotable
             }
         }
         else {
-            tmLog.debug("LeaderAppointer in repair");
+            tmLog.debug(WHOMIM + "LeaderAppointer in repair");
             m_state.set(AppointerState.DONE);
         }
 
@@ -496,6 +522,10 @@ public class LeaderAppointer implements Promotable
             m_es);
         }
         else {
+            // Create MP repair ZK node to block rejoin
+            VoltZK.createActionBlocker(m_zk, VoltZK.mpRepairInProgress,
+                    CreateMode.EPHEMERAL, tmLog, "MP Repair");
+
             // If we're taking over for a failed LeaderAppointer, we know when
             // we get here that every partition had a leader at some point in
             // time.  We'll seed each of the PartitionCallbacks for each
@@ -504,7 +534,7 @@ public class LeaderAppointer implements Promotable
             // call our callback, get the current full set of replicas, and
             // appoint a new leader if the seeded one has actually failed
             Map<Integer, Long> masters = m_iv2masters.pointInTimeCache();
-            tmLog.info("LeaderAppointer repairing with master set: " + CoreUtils.hsIdValueMapToString(masters));
+            tmLog.info(WHOMIM + "repairing with master set: " + CoreUtils.hsIdValueMapToString(masters));
             //Setting the map to non-null causes the babysitters to populate it when cleaning up partitions
             //We are only racing with ourselves in that the creation of a babysitter can trigger callbacks
             //that result in partitions being cleaned up. We don't have to worry about some other leader appointer.
@@ -512,33 +542,28 @@ public class LeaderAppointer implements Promotable
             m_removedPartitionsAtPromotionTime = new HashSet<Integer>();
 
             for (Entry<Integer, Long> master : masters.entrySet()) {
-
-                //Skip processing the partition if it was cleaned up by a babysitter that was previously
-                //instantiated
                 int partId = master.getKey();
                 if (m_removedPartitionsAtPromotionTime.contains(partId)) {
-                    tmLog.info("During promotion partition " + master.getKey() + " was cleaned up. Skipping.");
+                    tmLog.info(WHOMIM + "During promotion partition " + master.getKey() + " was cleaned up. Skipping.");
                     continue;
                 }
 
                 String dir = LeaderElector.electionDirForPartition(VoltZK.leaders_initiators, partId);
                 PartitionCallback cb = new PartitionCallback(partId, master.getValue());
                 m_callbacks.put(partId, cb);
-                Pair<BabySitter, List<String>> sitterstuff = BabySitter.blockingFactory(m_zk, dir, cb, m_es);
+                Pair<BabySitter, List<String>> sitterstuff = BabySitter.blockingFactory(m_zk, dir, cb);
 
                 //We could get this far and then find out that creating this particular
                 //babysitter triggered cleanup so we need to bail out here as well
-                if (!m_removedPartitionsAtPromotionTime.contains(master.getKey())) {
+                if (!m_removedPartitionsAtPromotionTime.contains(partId)) {
                     m_partitionWatchers.put(partId, sitterstuff.getFirst());
                 }
             }
             m_removedPartitionsAtPromotionTime = null;
 
             // just go ahead and promote our MPI
-            VoltZK.createMpRepairBlocker(m_zk);
             m_MPI.acceptPromotion();
-            VoltZK.removeMpRepairBlocker(m_zk, tmLog);
-            // set up a watcher on the partitions dir so that new partitions will be picked up
+            VoltZK.removeActionBlocker(m_zk, VoltZK.mpRepairInProgress, tmLog);
             m_zk.getChildren(VoltZK.leaders_initiators, m_partitionCallback);
             blocker.set(null);
         }
@@ -575,8 +600,7 @@ public class LeaderAppointer implements Promotable
         m_partitionWatchers.put(pid, babySitter);
     }
 
-    public boolean isClusterKSafe(Set<Integer> failedHosts)
-    {
+    public boolean isClusterKSafe(Set<Integer> failedHosts) {
         boolean retval = true;
         List<String> partitionDirs = null;
         try {
@@ -588,8 +612,9 @@ public class LeaderAppointer implements Promotable
         //Don't fetch the values serially do it asynchronously
         Queue<ZKUtil.ByteArrayCallback> dataCallbacks = new ArrayDeque<ZKUtil.ByteArrayCallback>();
         Queue<ZKUtil.ChildrenCallback> childrenCallbacks = new ArrayDeque<ZKUtil.ChildrenCallback>();
-        for (String partitionDir : partitionDirs) {
+        for (Iterator<String> it = partitionDirs.iterator(); it.hasNext();) {
             //skip checking MP, not relevant to KSafety
+            String partitionDir = it.next();
             int pid = LeaderElector.getPartitionFromElectionDir(partitionDir);
             if (pid == MpInitiator.MP_INIT_PID) continue;
 
@@ -602,7 +627,18 @@ public class LeaderAppointer implements Promotable
                 m_zk.getChildren(dir, false, childrenCallback, null);
                 childrenCallbacks.offer(childrenCallback);
             } catch (Exception e) {
-                VoltDB.crashLocalVoltDB("Unable to read replicas in ZK dir: " + dir, true, e);
+                // During elastic rejoin and re-balance partitions, a joining node failure will reject the whole joining
+                // and bring down all joining nodes. In the meantime, other nodes could check the cluster viability and could
+                // encounter the removal of newly elastically added partitions. Ignore these partitions. ENG-14567
+                if ( e instanceof KeeperException) {
+                    KeeperException ke = (KeeperException)e;
+                    if (ke.code() != KeeperException.Code.NONODE) {
+                        VoltDB.crashLocalVoltDB("Unable to read replicas in ZK dir: " + dir, true, e);
+                    }
+                    it.remove();
+                } else {
+                    VoltDB.crashLocalVoltDB("Unable to read replicas in ZK dir: " + dir, true, e);
+                }
             }
         }
 
@@ -671,6 +707,12 @@ public class LeaderAppointer implements Promotable
                 // update k-safety statistics for initialized partitions
                 // the missing partition count may be incorrect if the failed hosts contain any of the replicas?
                 lackingReplication.add(new KSafetyStats.StatsPoint(statTs, pid, m_kfactor + 1 - replicas.size()));
+            } catch (KeeperException ke) {
+                // See above comments ENG-14567: ZKUtil.ChildrenCallback or ZKUtil.ByteArrayCallback may throw exception
+                // if the queried node is removed.
+                if (ke.code() == KeeperException.Code.NONODE || ke.code() == KeeperException.Code.NOTEMPTY) {
+                    continue;
+                }
             } catch (Exception e) {
                 String dir = ZKUtil.joinZKPath(VoltZK.leaders_initiators, partitionDir);
                 VoltDB.crashLocalVoltDB("Unable to read replicas in ZK dir: " + dir, true, e);
@@ -710,10 +752,10 @@ public class LeaderAppointer implements Promotable
     }
 
     private void removeAndCleanupPartition(int pid) {
-        tmLog.info("Removing and cleanup up partition info for partition " + pid);
+        tmLog.info(WHOMIM + "cleanup up partition info for partition " + pid);
         if (m_removedPartitionsAtPromotionTime != null) {
             m_removedPartitionsAtPromotionTime.add(pid);
-            tmLog.info("Partition " + pid + " was cleaned up during LeaderAppointer promotion and should be skipped");
+            tmLog.info(WHOMIM + "Partition " + pid + " was cleaned up during LeaderAppointer promotion and should be skipped");
         }
         BabySitter sitter = m_partitionWatchers.remove(pid);
         if (sitter != null) {
@@ -725,7 +767,7 @@ public class LeaderAppointer implements Promotable
             ZKUtil.asyncDeleteRecursively(m_zk, ZKUtil.joinZKPath(VoltZK.iv2appointees, String.valueOf(pid)));
             ZKUtil.asyncDeleteRecursively(m_zk, ZKUtil.joinZKPath(VoltZK.leaders_initiators, "partition_" + String.valueOf(pid)));
         } catch (Exception e) {
-            tmLog.error("Error removing partition info", e);
+            tmLog.error(WHOMIM + "Error removing partition info", e);
         }
     }
 
@@ -789,10 +831,12 @@ public class LeaderAppointer implements Promotable
      * @param partitionId  partition id
      * @param newMasterHISD new master HSID
      */
-    public void updatePartitionLeader(int partitionId, long newMasterHISD) {
+    public void updatePartitionLeader(int partitionId, long newMasterHISD, boolean isLeaderMigrated) {
         PartitionCallback cb = m_callbacks.get(partitionId);
-        if (cb != null) {
+        if (cb != null && cb.m_currentLeader != newMasterHISD) {
+            cb.m_previousLeader = cb.m_currentLeader;
             cb.m_currentLeader = newMasterHISD;
+            cb.m_isLeaderMigrated = isLeaderMigrated;
         }
     }
 
@@ -810,7 +854,7 @@ public class LeaderAppointer implements Promotable
         if (hostLeaderMap.isEmpty() || m_callbacks.isEmpty()) {
             return;
         }
-        tmLog.info("Recalculating partition leaders after node down is detected.");
+        tmLog.info(WHOMIM + "Recalculate partition leaders after node down is detected.");
         // iterate through all partitions to see if its current leaders are on the failed hosts.
         for (PartitionCallback cb : m_callbacks.values()) {
             SortedSet<Host> hosts = new TreeSet<Host>();
@@ -829,8 +873,10 @@ public class LeaderAppointer implements Promotable
                 //find the host which has the lowest leader count.
                 host.increasePartitionLeader();
                 cb.newLeaderHostId = host.id;
-                tmLog.debug(String.format("Move partition leader to host %d from %d for partition %d.",
-                        host.id, hostId, cb.m_partitionId));
+                if (tmLog.isDebugEnabled()) {
+                    tmLog.debug(WHOMIM + String.format("Move partition leader to host %d from %d for partition %d.",
+                            host.id, hostId, cb.m_partitionId));
+                }
                 break;
             }
         }

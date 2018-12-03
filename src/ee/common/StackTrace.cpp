@@ -17,18 +17,19 @@
 
 // For backtrace and backtrace_symbols
 // These do not appear to work on the Mac in a JNI library
-#include <cxxabi.h>
 #include <execinfo.h>
 #include <cstring>
 #include <cxxabi.h>   // for abi
 #include <cstdlib>    // for malloc/free
 #include <sstream>    // for std::ostringstream
 
-#include "common/debuglog.h"
+#include "common/StackTrace.h"
+
+#ifdef MACOSX
 #include "common/executorcontext.hpp"
 #include "common/Topend.h"
-
 #include "execution/JNITopend.h"
+#endif
 
 namespace voltdb {
 
@@ -64,38 +65,6 @@ bool backtraceIsSupported() {
 #endif
 }
 
-}
-
-// Output log message header in this format: [type] [threadPartition:enginePartition] [file:line:function] time -
-// ex: [ERROR] [1:1] [somefile.cpp:123:doSome()] 2008/07/06 10:00:00 -
-void outputLogHeader(const char *file, int line, const char *func, int level) {
-    time_t t = ::time(NULL) ;
-    tm *curTime = localtime(&t);
-    char time_str[32]; // FIXME
-    ::strftime(time_str, 32, VOLT_LOG_TIME_FORMAT, curTime);
-    const int32_t tPartId = ThreadLocalPool::getThreadPartitionIdWithNullCheck();
-    const int32_t ePartId = ThreadLocalPool::getEnginePartitionIdWithNullCheck();
-    const char* type;
-    switch (level) {
-        case VOLT_LEVEL_ERROR:
-            type = "ERROR";
-            break;
-        case VOLT_LEVEL_WARN:
-            type = "WARN ";
-            break;
-        case VOLT_LEVEL_INFO:
-            type = "INFO ";
-            break;
-        case VOLT_LEVEL_DEBUG:
-            type = "DEBUG";
-            break;
-        case VOLT_LEVEL_TRACE:
-            type = "TRACE";
-            break;
-        default:
-            type = "UNKWN";
-    }
-    printf("[%s] [T%d:E%d] [%s:%d:%s()] %s - ", type, tPartId, ePartId, file, line, func, time_str);
 }
 
 StackTrace::StackTrace() {

@@ -60,7 +60,7 @@ public class MpTransactionState extends TransactionState
 {
     static VoltLogger tmLog = new VoltLogger("TM");
 
-    private static final int DR_MAX_AGGREGATE_BUFFERSIZE = Integer.getInteger("DR_MAX_AGGREGATE_BUFFERSIZE", (45 * 1024 * 1024) + 4096);
+    public static final int DR_MAX_AGGREGATE_BUFFERSIZE = Integer.getInteger("DR_MAX_AGGREGATE_BUFFERSIZE", (45 * 1024 * 1024) + 4096);
     private static final String dr_max_consumer_partitionCount_str = "DR_MAX_CONSUMER_PARTITIONCOUNT";
     private static final String dr_max_consumer_messageheader_room_str = "DR_MAX_CONSUMER_MESSAGEHEADER_ROOM";
     private static final String volt_output_buffer_overflow = "V0001";
@@ -213,6 +213,7 @@ public class MpTransactionState extends TransactionState
         m_haveDistributedInitTask = false;
         m_isRestart = true;
         m_haveSentfragment = false;
+        m_drBufferChangedAgg = 0;
     }
 
     @Override
@@ -236,7 +237,6 @@ public class MpTransactionState extends TransactionState
         m_remoteWork = null;
         m_remoteDeps = null;
         m_remoteDepTables.clear();
-        m_drBufferChangedAgg = 0;
     }
 
     // I met this List at bandcamp...
@@ -351,7 +351,6 @@ public class MpTransactionState extends TransactionState
             // Create some record of expected dependencies for tracking
             m_remoteDeps = createTrackedDependenciesFromTask(m_remoteWork,
                                                              m_useHSIds);
-
             // clear up DR buffer size tracker
             m_drBufferChangedAgg = 0;
             // if there are remote deps, block on them
@@ -366,14 +365,7 @@ public class MpTransactionState extends TransactionState
                                                           MiscUtils.hsIdPairTxnIdToString(m_mbox.getHSId(), msg.m_sourceHSId, txnId, batchIdx),
                                                           "status", Byte.toString(msg.getStatusCode())));
                 }
-                // Filter out stale responses due to the transaction restart, normally the timestamp is Long.MIN_VALUE
-                if (m_restartTimestamp != msg.getRestartTimestamp()) {
-                    if (tmLog.isDebugEnabled()) {
-                        tmLog.debug("Receives unmatched fragment response, expect timestamp " + MpRestartSequenceGenerator.restartSeqIdToString(m_restartTimestamp) +
-                                " actually receives: " + msg);
-                    }
-                    continue;
-                }
+
                 boolean expectedMsg = handleReceivedFragResponse(msg);
                 if (expectedMsg) {
                     // Will roll-back and throw if this message has an exception
@@ -457,20 +449,59 @@ public class MpTransactionState extends TransactionState
             while (msg == null) {
                 msg = m_newDeps.poll(PULL_TIMEOUT, TimeUnit.SECONDS);
                 if (msg == null && !snapShotRestoreProcName.equals(m_initiationMsg.getStoredProcedureName())) {
-                    tmLog.warn("Possible multipartition transaction deadlock detected for: " + m_initiationMsg);
+                    StringBuilder deadlockMsg = new StringBuilder();
+                    deadlockMsg.append("Possible multipartition transaction deadlock detected for: ").append(m_initiationMsg);
                     if (m_remoteWork == null) {
-                        tmLog.warn("Waiting on local BorrowTask response from site: " +
-                                CoreUtils.hsIdToString(m_buddyHSId));
+                        deadlockMsg.append("\nWaiting on local BorrowTask response from site: ").append(CoreUtils.hsIdToString(m_buddyHSId));
                     }
                     else {
-                        tmLog.warn("Waiting on remote dependencies for message:\n" + m_remoteWork + "\n");
+                        deadlockMsg.append("\nWaiting on remote dependencies for message:\n").append(m_remoteWork).append("\n");
                         for (Entry<Integer, Set<Long>> e : m_remoteDeps.entrySet()) {
-                            tmLog.warn("Dep ID: " + e.getKey() + " waiting on: " +
-                                    CoreUtils.hsIdCollectionToString(e.getValue()));
+                            deadlockMsg.append("Dep ID: " + e.getKey() + " waiting on: ").append(CoreUtils.hsIdCollectionToString(e.getValue()));
+                        }
+                        if (!m_masterMapForFragmentRestart.isEmpty()) {
+                            deadlockMsg.append("\nOne or more fragments misrouted and resubmitted to:\n");
+                            deadlockMsg.append(CoreUtils.hsIdCollectionToString(m_masterMapForFragmentRestart.keySet()));
                         }
                     }
+                    tmLog.warn(deadlockMsg.toString());
                     m_mbox.send(com.google_voltpatches.common.primitives.Longs.toArray(m_useHSIds), new DumpMessage());
                     m_mbox.send(m_mbox.getHSId(), new DumpMessage());
+                }
+
+                if (msg != null) {
+                    SerializableException se = msg.getException();
+                    if (se instanceof TransactionRestartException) {
+                        if (tmLog.isDebugEnabled()) {
+                            tmLog.debug("Transaction exception, txnid: " + TxnEgo.txnIdToString(msg.getTxnId()) + " status:" + msg.getStatusCode()  + " isMisrouted:"+ ((TransactionRestartException) se).isMisrouted()
+                                    + " msg: " + msg);
+                        }
+
+                        // If this is a restart exception from the inject poison pill, we don't need to match up the DependencyId
+                        // Don't rely on the restartTimeStamp check since it's not reliable for poison
+                        if (!((TransactionRestartException) se).isMisrouted()) {
+                            setNeedsRollback(true);
+                            throw se;
+                        }
+                    }
+
+                    // Filter out stale responses due to the transaction restart, normally the timestamp is Long.MIN_VALUE
+                    if (m_restartTimestamp != msg.getRestartTimestamp()) {
+                        if (tmLog.isDebugEnabled()) {
+                            tmLog.debug("Receives unmatched fragment response, expect timestamp " + MpRestartSequenceGenerator.restartSeqIdToString(m_restartTimestamp) +
+                                    " actually receives: " + msg);
+                        }
+                        msg = null;
+                    }
+                    if (msg != null) {
+                        if (se instanceof TransactionRestartException) {
+                            // If this is an misrouted exception, rerouted only this fragment
+                            if (((TransactionRestartException) se).isMisrouted()) {
+                                restartFragment(msg, ((TransactionRestartException) se).getMasterList(), ((TransactionRestartException) se).getPartitionMasterMap());
+                                msg = null;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -479,15 +510,7 @@ public class MpTransactionState extends TransactionState
             // could retry; but this is unexpected. Crash.
             throw new RuntimeException(e);
         }
-        SerializableException se = msg.getException();
-        if (se != null && se instanceof TransactionRestartException) {
-            if (tmLog.isDebugEnabled()) {
-                tmLog.debug("Transaction exception, txnid: " + TxnEgo.txnIdToString(msg.getTxnId()) + " status:" + msg.getStatusCode());
-            }
-            // If this is a restart exception, we don't need to match up the DependencyId
-            setNeedsRollback(true);
-            throw se;
-        }
+
         return msg;
     }
 
@@ -609,6 +632,9 @@ public class MpTransactionState extends TransactionState
     }
 
     public boolean drTxnDataCanBeRolledBack() {
+        if (tmLog.isTraceEnabled()) {
+            tmLog.trace("DR Txn can be rolled back=" + (m_drBufferChangedAgg == 0));
+        }
         return m_drBufferChangedAgg == 0;
     }
 
@@ -620,15 +646,6 @@ public class MpTransactionState extends TransactionState
      * @param partitionMastersMap The current partition masters
      */
     public void restartFragment(FragmentResponseMessage message, List<Long> masters, Map<Integer, Long> partitionMastersMap) {
-        // Filter out stale responses due to the transaction restart, normally the timestamp is Long.MIN_VALUE
-        if (m_restartTimestamp != message.getRestartTimestamp()) {
-            if (tmLog.isDebugEnabled()) {
-                tmLog.debug("Receives stale misrouted fragment response, " +
-                        "expect timestamp " + MpRestartSequenceGenerator.restartSeqIdToString(m_restartTimestamp) +
-                        " actually receives: " + message);
-            }
-            return;
-        }
         final int partionId = message.getPartitionId();
         Long restartHsid = partitionMastersMap.get(partionId);
         Long hsid = message.getExecutorSiteId();
@@ -700,3 +717,4 @@ public class MpTransactionState extends TransactionState
         return m_haveSentfragment;
     }
 }
+
