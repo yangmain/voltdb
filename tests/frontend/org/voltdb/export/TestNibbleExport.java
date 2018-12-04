@@ -36,7 +36,6 @@ import org.voltdb.client.ClientImpl;
 import org.voltdb.compiler.VoltProjectBuilder;
 import org.voltdb.regressionsuites.LocalCluster;
 import org.voltdb.regressionsuites.MultiConfigSuiteBuilder;
-import org.voltdb.regressionsuites.TestSQLTypesSuite;
 import org.voltdb.utils.VoltFile;
 
 public class TestNibbleExport extends TestExportBaseSocketExport {
@@ -113,7 +112,6 @@ public class TestNibbleExport extends TestExportBaseSocketExport {
             client.callProcedure("@AdHoc", "INSERT INTO nibble_export_table VALUES(" + i + ",CURRENT_TIMESTAMP())");
         }
         Thread.sleep(TimeUnit.SECONDS.toMillis(20));
-        client.drain();
         waitForStreamedTargetAllocatedMemoryZero(client);
         VoltTable stats = client.callProcedure("@Statistics", "export", 0).getResults()[0];
         int exportedCount = 0;
