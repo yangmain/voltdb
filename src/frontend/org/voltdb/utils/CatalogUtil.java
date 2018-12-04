@@ -3180,16 +3180,4 @@ public abstract class CatalogUtil {
         }
         return false;
     }
-
-    public static String getSortedColumnNames(Table table, List<String> exclusions) {
-        List<String> columnNames = new ArrayList<String>();
-        for (Column column : table.getColumns()) {
-            if (exclusions != null && exclusions.contains(column.getTypeName())) {
-                continue;
-            }
-            columnNames.add(column.getTypeName());
-        }
-        Collections.sort(columnNames);
-        return String.join(",", columnNames);
-    }
 }

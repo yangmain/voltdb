@@ -22,6 +22,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
@@ -813,94 +814,54 @@ public abstract class StatementCompiler {
         return newCatProc;
     }
 
+    public static Procedure compileNibbleExportProcedure(Table catTable, String procName,
+            Column col, ComparisonOperation comp, Table streamTable) {
+        Procedure newCatProc = addProcedure(catTable, procName);
 
-    private static String genSelectCountSqlForNibbleExport(Table table, Column column,
-            ComparisonOperation comparison) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("SELECT COUNT(*) FROM " + table.getTypeName());
-        sb.append(" WHERE " + column.getName() + " " + comparison.toString() + " ?;");
-        return sb.toString();
-    }
+        // count
+        String countingQuery = genSelectSqlForNibbleDelete(catTable, col, comp);
+        addStatement(catTable, newCatProc, countingQuery, "0");
 
-    private static String genSelectSqlForNibbleExport(Table table, Column column,
-            ComparisonOperation comparison, String hiddenColumn) {
+        // select
         StringBuilder sb = new StringBuilder();
-        List<String> exclusions = new ArrayList<>();
-        exclusions.add(hiddenColumn);
-        String fromColumns = CatalogUtil.getSortedColumnNames(table, exclusions);
-        sb.append("SELECT " + fromColumns + " FROM " + table.getTypeName());
-        sb.append(" WHERE " + column.getName() + " " + comparison.toString() + " ? AND " + hiddenColumn + " = 0;");
-        return sb.toString();
-    }
+        String fromColumns = getSortedColumnNames(catTable);
+        sb.append("SELECT " + fromColumns + " FROM " + catTable.getTypeName());
+        sb.append(" WHERE " + col.getName() + " " + comp.toString() + " ? ");
+        addStatement(catTable, newCatProc, sb.toString(), "1");
 
-    private static String genUpdateSqlForNibbleExport(Table table, String hiddenColumn) {
-        Collection<Column> keys = CatalogUtil.getPrimaryKeyColumns(table);
-        if (keys.isEmpty()) {
-            return null;
-        }
-        StringBuilder sb = new StringBuilder();
-        sb.append("UPDATE " + table.getTypeName());
-        sb.append(" SET " + hiddenColumn + "=1 WHERE " + keys.iterator().next().getName() + "=?;");
-        return sb.toString();
-    }
-
-    private static String genInsertSqlForNibbleExport(Table streamTable) {
-        StringBuilder sb = new StringBuilder();
-        List<String> exclusions = new ArrayList<>();
-        String fromColumns = CatalogUtil.getSortedColumnNames(streamTable, exclusions);
+        // insert to stream
+        sb = new StringBuilder();
+        fromColumns = getSortedColumnNames(streamTable);
         sb.append("INSERT INTO " + streamTable.getTypeName());
         sb.append(" (" + fromColumns + ") VALUES (");
         String[] questions = new String[streamTable.getColumns().size()];
         Arrays.fill(questions, "?");
         sb.append(String.join(",", questions) + ");");
-        return sb.toString();
-    }
+        addStatement(streamTable, newCatProc, sb.toString(), "2");
 
-    private static String genValueAtOffsetSqlForNibbleExport(Table table, Column column,
-            ComparisonOperation comparison) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("SELECT " + column.getName() + " FROM " + table.getTypeName());
-        sb.append(" WHERE EXPORTED=0 ORDER BY " + column.getName());
-        if (comparison == ComparisonOperation.LTE || comparison == ComparisonOperation.LT) {
-            sb.append(" ASC OFFSET ? LIMIT 1;");
-        } else {
-            sb.append(" DESC OFFSET ? LIMIT 1;");
-        }
-        return sb.toString();
-    }
-
-
-    private static String genDeleteSqlForNibbleExport(Table table, Column column) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("DELETE FROM " + table.getTypeName());
-        sb.append(" WHERE " + column.getName() + " = ?;");
-        return sb.toString();
-    }
-
-
-    public static Procedure compileNibbleExportProcedure(Table catTable, String procName,
-            Column col, ComparisonOperation comp, Table streamTable) {
-        final String hiddenColumn = "EXPORTED";
-        Procedure newCatProc = addProcedure(catTable, procName);
-
-        String countingQuery = genSelectCountSqlForNibbleExport(catTable, col, comp);
-        addStatement(catTable, newCatProc, countingQuery, "0");
-        String selectQuery = genSelectSqlForNibbleExport(catTable, col, comp, hiddenColumn);
-        addStatement(catTable, newCatProc, selectQuery, "1");
-        String insertQuery = genInsertSqlForNibbleExport(streamTable);
-        addStatement(streamTable, newCatProc, insertQuery, "2");
-        String updateQuery = genUpdateSqlForNibbleExport(catTable, hiddenColumn);
-        addStatement(catTable, newCatProc, updateQuery, "3");
-        String valueAtQuery = genValueAtOffsetSqlForNibbleExport(catTable, col, comp);
-        addStatement(catTable, newCatProc, valueAtQuery, "4");
+        // determine offset
+        String valueAtQuery = genValueAtOffsetSqlForNibbleDelete(catTable, col, comp);
+        addStatement(catTable, newCatProc, valueAtQuery, "3");
         return newCatProc;
+    }
+
+    private static String getSortedColumnNames(Table table) {
+        List<String> columns = new ArrayList<>();
+        for (Column column : table.getColumns()) {
+            columns.add(column.getTypeName());
+        }
+        Collections.sort(columns);
+        return String.join(",", columns);
     }
 
     public static Procedure compileNibbleExportDeleteProcedure(Table catTable, String procName, Column col) {
         Procedure newCatProc = addProcedure(catTable, procName);
 
-        String deleteQuery = genDeleteSqlForNibbleExport(catTable, col);
-        addStatement(catTable, newCatProc, deleteQuery, "0");
+        StringBuilder sb = new StringBuilder();
+        sb.append("DELETE FROM " + catTable.getTypeName());
+        sb.append(" WHERE " + col.getName() + " = ?;");
+
+        addStatement(catTable, newCatProc, sb.toString(), "0");
         return newCatProc;
     }
 }
