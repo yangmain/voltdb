@@ -21,6 +21,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -46,16 +47,13 @@ import org.voltdb.VoltDB;
 import org.voltdb.VoltTable;
 import org.voltdb.catalog.CatalogMap;
 import org.voltdb.catalog.Cluster;
-import org.voltdb.catalog.ColumnRef;
+import org.voltdb.catalog.Column;
 import org.voltdb.catalog.Connector;
 import org.voltdb.catalog.ConnectorProperty;
 import org.voltdb.catalog.ConnectorTableInfo;
-import org.voltdb.catalog.Constraint;
 import org.voltdb.catalog.Database;
-import org.voltdb.catalog.Index;
 import org.voltdb.catalog.Table;
 import org.voltdb.catalog.TimeToLive;
-import org.voltdb.types.ConstraintType;
 import org.voltdb.utils.CatalogUtil;
 import org.voltdb.sysprocs.ExportControl.OperationMode;
 import org.voltdb.utils.LogKeys;
@@ -474,21 +472,10 @@ public class ExportManager
 
             if (streams.size() == 1 && ttlExportTables.get(streams.iterator().next()) != null) {
                 Table t = ttlExportTables.get(streams.iterator().next());
-                boolean pkFound = false;
-                for (Constraint catalog_const : t.getConstraints()) {
-                    ConstraintType const_type = ConstraintType.get(catalog_const.getType());
-                    if (const_type == ConstraintType.PRIMARY_KEY) {
-                        Index catalog_idx = catalog_const.getIndex();
-                        List<ColumnRef> pkCols = CatalogUtil.getSortedCatalogItems(catalog_idx.getColumns(), "index");
-                        // TODO: Support multi-column primary keys
-                        assert(pkCols.size() == 1);
-                        pkFound = true;
-                        properties.put("primaryKeyCol", Integer.toString(pkCols.get(0).getColumn().getIndex()));
-                        properties.put("nibbleSourceTable", t.getTypeName());
-                        break;
-                    }
-                }
-                assert(pkFound);
+                Collection<Column> keys = CatalogUtil.getPrimaryKeyColumns(t);
+                assert(keys.size() == 1);
+                properties.put("primaryKeyCol", Integer.toString(keys.iterator().next().getIndex()));
+                properties.put("nibbleSourceTable", t.getTypeName());
             }
 
             Pair<Properties, Set<String>> connConfig = new Pair<>(properties, streams);

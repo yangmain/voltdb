@@ -1067,8 +1067,46 @@ public class ParserDDL extends ParserRoutine {
                 throw unexpectedToken();
             }
             batchSize = (Integer)(token.tokenValue);
+            read();
+            if (token.tokenType == Tokens.MAX_FREQUENCY) {
+                read();
+                if (token.tokenType != Tokens.X_VALUE) {
+                    throw unexpectedToken();
+                }
+                maxFrequency = (Integer)(token.tokenValue);
+                read();
+                if (token.tokenType == Tokens.STREAM) {
+                    read();
+                    if (token.tokenType != Tokens.X_IDENTIFIER) {
+                        throw unexpectedToken();
+                    }
+                    stream = token.tokenString;
+                }
+            }
+        }
+        if (token.tokenType == Tokens.MAX_FREQUENCY) {
+            read();
+            if (token.tokenType != Tokens.X_VALUE) {
+                throw unexpectedToken();
+            }
+            maxFrequency = (Integer)(token.tokenValue);
+            read();
+            if (token.tokenType == Tokens.STREAM) {
+                read();
+                if (token.tokenType != Tokens.X_IDENTIFIER) {
+                    throw unexpectedToken();
+                }
+                stream = token.tokenString;
+            }
         }
 
+        if (token.tokenType == Tokens.STREAM) {
+            read();
+            if (token.tokenType != Tokens.X_IDENTIFIER) {
+                throw unexpectedToken();
+            }
+            stream = token.tokenString;
+        }
         read();
         if (token.tokenType == Tokens.SEMICOLON) {
             return createTimeToLive(table, alter, timeLiveValue, ttlUnit, ttlColumn, batchSize, maxFrequency, stream);
@@ -1081,6 +1119,14 @@ public class ParserDDL extends ParserRoutine {
             maxFrequency = (Integer)(token.tokenValue);
         }
 
+        if (token.tokenType == Tokens.STREAM) {
+            read();
+            if (token.tokenType != Tokens.X_IDENTIFIER) {
+                throw unexpectedToken();
+            }
+            stream = token.tokenString;
+        }
+
         read();
         if (token.tokenType == Tokens.STREAM) {
             read();
@@ -1088,12 +1134,6 @@ public class ParserDDL extends ParserRoutine {
                 throw unexpectedToken();
             }
             stream = token.tokenString;
-            //add a hidden cloumn
-//            if (!alter) {
-//                ColumnSchema column = new ColumnSchema((HsqlName)(HsqlNameManager.getAutoColumnName("EXPORTED")),
-//                        (Type)(BooleanType.getBooleanType()), false, false, Expression.EXPR_FALSE);
-//                table.addColumn(column);
-//             }
             read();
         }
 
