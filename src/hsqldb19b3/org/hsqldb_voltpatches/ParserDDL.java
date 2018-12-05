@@ -33,6 +33,7 @@ package org.hsqldb_voltpatches;
 
 import java.lang.reflect.Method;
 
+import org.eclipse.jetty.util.StringUtil;
 import org.hsqldb_voltpatches.HsqlNameManager.HsqlName;
 import org.hsqldb_voltpatches.index.Index;
 import org.hsqldb_voltpatches.lib.HsqlArrayList;
@@ -43,6 +44,7 @@ import org.hsqldb_voltpatches.rights.Grantee;
 import org.hsqldb_voltpatches.rights.GranteeManager;
 import org.hsqldb_voltpatches.rights.Right;
 import org.hsqldb_voltpatches.rights.User;
+import org.hsqldb_voltpatches.types.BooleanType;
 import org.hsqldb_voltpatches.types.Charset;
 import org.hsqldb_voltpatches.types.Type;
 import org.hsqldb_voltpatches.types.UserTypeModifier;
@@ -1136,7 +1138,12 @@ public class ParserDDL extends ParserRoutine {
             stream = token.tokenString;
             read();
         }
-
+//        //add a hidden cloumn
+//        if (stream != null && !alter) {
+//            ColumnSchema column = new ColumnSchema((HsqlName)(HsqlNameManager.getAutoColumnName("EXPORTED")),
+//                    Type.TINYINT, false, false, null);
+//            table.addColumn(column);
+//        }
         if (token.tokenType == Tokens.SEMICOLON) {
             return createTimeToLive(table, alter, timeLiveValue, ttlUnit, ttlColumn, batchSize, maxFrequency, stream);
         } else {

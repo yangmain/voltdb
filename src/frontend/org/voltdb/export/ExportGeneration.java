@@ -151,7 +151,7 @@ public class ExportGeneration implements Generation {
         m_ci = clientInterface;
         m_adapter = new SimpleClientResponseAdapter(ClientInterface.EXPORT_NIBBLE_DELETE_CID,
                                                     "ExportNibbleDeleteAdapter");
-//        m_ci.bindAdapter(m_adapter, null);
+        m_ci.bindAdapter(m_adapter, null);
     }
 
     private List<Integer> initializeGenerationFromDisk(HostMessenger messenger, List<Pair<Integer, Integer>> localPartitionsToSites) {
@@ -885,8 +885,8 @@ public class ExportGeneration implements Generation {
     public void startNibbleDeleteTransaction(StoredProcedureInvocation spi, int partition, Callback cb) {
         Long handle = m_adapter.registerCallback(cb);
         spi.setClientHandle(handle);
-
         m_ci.createTransaction(m_adapter.connectionId(), spi, false, true, false, partition, spi.getSerializedSize(),
                 System.nanoTime());
     }
+
 }

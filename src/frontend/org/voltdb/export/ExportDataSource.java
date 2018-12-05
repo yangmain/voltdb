@@ -57,9 +57,12 @@ import org.voltcore.utils.DBBPool.BBContainer;
 import org.voltcore.utils.Pair;
 import org.voltdb.SimpleClientResponseAdapter;
 import org.voltdb.StoredProcedureInvocation;
+import org.voltdb.TheHashinator;
 import org.voltdb.ExportStatsBase.ExportStatsRow;
+import org.voltdb.PrivateVoltTableFactory;
 import org.voltdb.RealVoltDB;
 import org.voltdb.VoltDB;
+import org.voltdb.VoltTable;
 import org.voltdb.VoltType;
 import org.voltdb.catalog.CatalogMap;
 import org.voltdb.catalog.Column;
@@ -168,8 +171,6 @@ public class ExportDataSource implements Comparable<ExportDataSource> {
     public final ArrayList<Integer> m_columnLengths = new ArrayList<>();
     private String m_partitionColumnName = "";
 
-    private String m_nibbleDeleteTableName = null;
-    private String m_nibbleDeleteColumnName = null;
     private static final boolean DISABLE_AUTO_GAP_RELEASE = Boolean.getBoolean("DISABLE_AUTO_GAP_RELEASE");
 
     static enum StreamStatus {
@@ -1020,7 +1021,7 @@ public class ExportDataSource implements Comparable<ExportDataSource> {
         final int m_tuplesCount;
         final BBContainer m_backingCont;
         long m_startTime = 0;
-
+        NibbleDeleter<?> m_nibbleDeleter;
         public AckingContainer(BBContainer cont, long seq, int tuplesSent) {
             super(cont.b());
             m_seqNo = seq;
@@ -1032,6 +1033,9 @@ public class ExportDataSource implements Comparable<ExportDataSource> {
             m_startTime = startTime;
         }
 
+        public void setNibbleDeleter(NibbleDeleter<?> deleter) {
+            m_nibbleDeleter = deleter;
+        }
         @Override
         public void discard() {
             checkDoubleFree();
@@ -1060,6 +1064,9 @@ public class ExportDataSource implements Comparable<ExportDataSource> {
                             } finally {
                                 forwardAckToOtherReplicas(m_seqNo, m_tuplesCount);
                             }
+                            if (m_nibbleDeleter != null) {
+                                m_nibbleDeleter.delete();
+                            }
                         } catch (Exception e) {
                             exportLog.error("Error acking export buffer", e);
                         } catch (Error e) {
@@ -1075,103 +1082,83 @@ public class ExportDataSource implements Comparable<ExportDataSource> {
         }
     }
 
-    public class NibbleDeletingContainer<E> extends BBContainer {
-        final AckingContainer m_ackingCont;
+    public class NibbleDeleter<E> {
         final String m_nibbleDeleteTableName;
         final String m_nibbleDeleteColName;
         final StoredProcedureInvocation exportDelete = new StoredProcedureInvocation();
         public final ArrayList<E> m_pkList = new ArrayList<>();
-
         class NibbleDeleteCB implements SimpleClientResponseAdapter.Callback {
             @Override
             public void handleResponse(ClientResponse clientResponse) {
-                if (ClientResponse.SUCCESS == clientResponse.getStatus()) {
-                    m_ackingCont.discard();
-                }
-                else {
-                    if (ClientResponse.RESPONSE_UNKNOWN == clientResponse.getAppStatus()) {
-                        try {
-                            m_generation.startNibbleDeleteTransaction(exportDelete, m_partitionId, new NibbleDeleteCB());
-                        } catch (Exception e) {
-                            exportLog.error("Error acking export buffer", e);
-                        } catch (Error e) {
-                            VoltDB.crashLocalVoltDB("Error acking export buffer", true, e);
-                        }
-                    }
-                    else {
-                        exportLog.warn("Nibble delete after an export acknowledgement failed (" +
-                                clientResponse.getStatus() + "): " + clientResponse.getStatusString());
-                    }
-                }
+                exportLog.info("Nibble delete after an export(" +
+                        clientResponse.getStatus() + ")");
             }
 
         };
-
-        public NibbleDeletingContainer(BBContainer cont, String tableName, String colName) {
-            super(null);
-            m_ackingCont = (AckingContainer)cont;
-            m_nibbleDeleteTableName = tableName;
-            m_nibbleDeleteColName = colName;
+        public NibbleDeleter(String table, String col) {
+            m_nibbleDeleteTableName = table;
+            m_nibbleDeleteColName = col;
             exportDelete.setProcName("@NibbleDeleteAfterExportSP");
         }
 
-        @Override
-        public void discard() {
-            checkDoubleFree();
+        public void delete() {
+            if (m_pkList.isEmpty()) return;
+            VoltTable partitionKeys = TheHashinator.getPartitionKeys(VoltType.INTEGER);
+            ByteBuffer buf = ByteBuffer.allocate(partitionKeys.getSerializedSize());
+            partitionKeys.flattenToBuffer(buf);
+            buf.flip();
+            VoltTable keyCopy = PrivateVoltTableFactory.createVoltTableFromSharedBuffer(buf);
+            keyCopy.resetRowPosition();
+            int partitionKey = -1;
+            while (keyCopy.advanceRow()) {
+                if (m_partitionId == keyCopy.getLong("PARTITION_ID")) {
+                    partitionKey = (int)(keyCopy.getLong("PARTITION_KEY"));
+                    break;
+                }
+            }
+
+            if (partitionKey == -1) {
+                return;
+            }
             try {
-                m_es.execute(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (exportLog.isTraceEnabled()) {
-                            exportLog.trace("NibbleDeletingContainer.discard with uso: " + m_ackingCont.m_seqNo);
-                        }
-                        try {
-                            exportDelete.setParams(m_nibbleDeleteTableName, m_nibbleDeleteColName, m_pkList.toArray());
-                            m_generation.startNibbleDeleteTransaction(exportDelete, m_partitionId, new NibbleDeleteCB());
-                        } catch (Exception e) {
-                            exportLog.error("Error acking export buffer", e);
-                        } catch (Error e) {
-                            VoltDB.crashLocalVoltDB("Error acking export buffer", true, e);
-                        }
-                    }
-                });
-            } catch (RejectedExecutionException rej) {
-                  //Don't expect this to happen outside of test, but in test it's harmless
-                  exportLog.info("Acking export data task rejected, this should be harmless");
-                  m_ackingCont.discard();
+                exportDelete.setParams(partitionKey, m_nibbleDeleteTableName, m_nibbleDeleteColName, m_pkList.toArray());
+                m_generation.startNibbleDeleteTransaction(exportDelete, m_partitionId, new NibbleDeleteCB());
+            } catch (Exception e) {
+                exportLog.error("Error acking export buffer", e);
+            } catch (Error e) {
+                VoltDB.crashLocalVoltDB("Error acking export buffer", true, e);
             }
         }
-
-        @SuppressWarnings("unchecked")
+        @SuppressWarnings("unused")
         public void addPk(Object obj) {
             m_pkList.add((E)obj);
         }
     }
 
-    public NibbleDeletingContainer<?> createDeleterInvocation(VoltType columnType, BBContainer cont, String tableName, String colName) {
+    public NibbleDeleter<?> createNibbleDeleter(VoltType columnType, String tableName, String colName) {
         switch (columnType) {
         case TINYINT:
-            return new NibbleDeletingContainer<Byte>(cont, tableName, colName);
+            return new NibbleDeleter<Byte>(tableName, colName);
         case SMALLINT:
-            return new NibbleDeletingContainer<Short>(cont, tableName, colName);
+            return new NibbleDeleter<Short>(tableName, colName);
         case INTEGER:
-            return new NibbleDeletingContainer<Integer>(cont, tableName, colName);
+            return new NibbleDeleter<Integer>(tableName, colName);
         case BIGINT:
-            return new NibbleDeletingContainer<Long>(cont, tableName, colName);
+            return new NibbleDeleter<Long>(tableName, colName);
         case FLOAT:
-            return new NibbleDeletingContainer<Double>(cont, tableName, colName);
+            return new NibbleDeleter<Double>(tableName, colName);
         case TIMESTAMP:
-            return new NibbleDeletingContainer<TimestampType>(cont, tableName, colName);
+            return new NibbleDeleter<TimestampType>(tableName, colName);
         case STRING:
-            return new NibbleDeletingContainer<String>(cont, tableName, colName);
+            return new NibbleDeleter<String>(tableName, colName);
         case VARBINARY:
-            return new NibbleDeletingContainer<Byte>(cont, tableName, colName);
+            return new NibbleDeleter<Byte>(tableName, colName);
         case DECIMAL:
-            return new NibbleDeletingContainer<BigDecimal>(cont, tableName, colName);
+            return new NibbleDeleter<BigDecimal>(tableName, colName);
         case GEOGRAPHY_POINT:
-            return new NibbleDeletingContainer<GeographyPointValue>(cont, tableName, colName);
+            return new NibbleDeleter<GeographyPointValue>(tableName, colName);
         case GEOGRAPHY:
-            return new NibbleDeletingContainer<GeographyValue>(cont, tableName, colName);
+            return new NibbleDeleter<GeographyValue>(tableName, colName);
         default:
             return null;
         }

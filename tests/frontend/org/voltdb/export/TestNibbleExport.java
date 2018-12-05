@@ -79,11 +79,11 @@ public class TestNibbleExport extends TestExportBaseSocketExport {
         project.addRoles(GROUPS);
         project.addUsers(USERS);
         project.addLiteralSchema("CREATE TABLE nibble_export_table"
-                + " (id integer not null,ts TIMESTAMP not null, PRIMARY KEY(id)) USING TTL 10 SECONDS ON COLUMN TS STREAM nibble_export_stream;\n"
+                + " (id integer not null,ts TIMESTAMP not null, exported integer, PRIMARY KEY(id)) USING TTL 10 SECONDS ON COLUMN TS STREAM nibble_export_stream;\n"
                 + " PARTITION TABLE nibble_export_table ON COLUMN id;\n"
                 + " CREATE INDEX ttlindex ON nibble_export_table (ts);\n"
                 + " CREATE STREAM nibble_export_stream PARTITION ON COLUMN id EXPORT TO TARGET "
-                + " nibble_export_stream (id integer not null, ts TIMESTAMP not null);"
+                + " nibble_export_stream (id integer not null, ts TIMESTAMP not null, exported integer);"
                 );
 
         wireupExportTableToSocketExport("nibble_export_stream");
@@ -109,7 +109,7 @@ public class TestNibbleExport extends TestExportBaseSocketExport {
 
         final int insertCount = 1000;
         for (int i=0; i < insertCount; i++) {
-            client.callProcedure("@AdHoc", "INSERT INTO nibble_export_table VALUES(" + i + ",CURRENT_TIMESTAMP())");
+            client.callProcedure("@AdHoc", "INSERT INTO nibble_export_table(id, ts, exported) VALUES(" + i + ",CURRENT_TIMESTAMP(), 0)");
         }
         Thread.sleep(TimeUnit.SECONDS.toMillis(20));
         waitForStreamedTargetAllocatedMemoryZero(client);
@@ -120,6 +120,8 @@ public class TestNibbleExport extends TestExportBaseSocketExport {
         while (stats.advanceRow()) {
             exportedCount += stats.getLong("TUPLE_COUNT");
         }
-        assertTrue(insertCount <= exportedCount);
+        assertTrue(insertCount == exportedCount);
+        Thread.sleep(TimeUnit.SECONDS.toMillis(10));
+        assertEquals(0, client.callProcedure("@AdHoc", "select count(*) from nibble_export_table;").getResults()[0].asScalarLong());
     }
 }

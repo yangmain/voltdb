@@ -204,8 +204,9 @@ public class NibbleExportBase extends VoltSystemProcedure {
         Statement countStmt     = newCatProc.getStatements().get(VoltDB.ANON_STMT_NAME + "0");
         Statement selectStmt    = newCatProc.getStatements().get(VoltDB.ANON_STMT_NAME + "1");
         Statement insertStmt    = newCatProc.getStatements().get(VoltDB.ANON_STMT_NAME + "2");
-        Statement valueAtStmt   = newCatProc.getStatements().get(VoltDB.ANON_STMT_NAME + "3");
-        if (countStmt == null || selectStmt == null || insertStmt == null || valueAtStmt == null) {
+        Statement updateStmt    = newCatProc.getStatements().get(VoltDB.ANON_STMT_NAME + "3");
+        Statement valueAtStmt   = newCatProc.getStatements().get(VoltDB.ANON_STMT_NAME + "4");
+        if (countStmt == null || selectStmt == null || insertStmt == null || updateStmt == null || valueAtStmt == null) {
             throw new VoltAbortException(String.format("Unable to find SQL statement for table %s.", tableName));
         }
 
@@ -228,6 +229,7 @@ public class NibbleExportBase extends VoltSystemProcedure {
                                        cutoffValue == null ? params : new Object[] {cutoffValue},
                                        replicated);
         int insertCount = 0;
+        int primaryIndex = result.getColumnIndex(keys.iterator().next().getTypeName());
         while (result.advanceRow()) {
             Object[] streamParams = new Object[result.getColumnCount()];
             for (int i = 0; i < result.getColumnCount(); i++) {
@@ -235,6 +237,9 @@ public class NibbleExportBase extends VoltSystemProcedure {
             }
             insertCount++;
             executePrecompiledSQL(insertStmt, streamParams, replicated);
+            Object[] primaryParams = new Object[1];
+            primaryParams[0] = result.get(primaryIndex, result.getColumnType(primaryIndex));
+            executePrecompiledSQL(updateStmt, primaryParams, replicated);
         }
 
         // Return rows be exported in this run and rows left for next run

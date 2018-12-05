@@ -21,6 +21,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -818,14 +819,16 @@ public abstract class StatementCompiler {
         Procedure newCatProc = addProcedure(catTable, procName);
 
         // count
-        String countingQuery = genSelectSqlForNibbleDelete(catTable, col, comp);
-        addStatement(catTable, newCatProc, countingQuery, "0");
+        StringBuilder sb = new StringBuilder();
+        sb.append("SELECT COUNT(*) FROM " + catTable.getTypeName());
+        sb.append(" WHERE EXPORTED = 0 AND "+ col.getName() + " " + comp.toString() + " ?;");
+        addStatement(catTable, newCatProc, sb.toString(), "0");
 
         // select
-        StringBuilder sb = new StringBuilder();
+        sb = new StringBuilder();
         String fromColumns = getSortedColumnNames(catTable);
         sb.append("SELECT " + fromColumns + " FROM " + catTable.getTypeName());
-        sb.append(" WHERE " + col.getName() + " " + comp.toString() + " ? ");
+        sb.append(" WHERE EXPORTED = 0 AND " + col.getName() + " " + comp.toString() + " ? ");
         addStatement(catTable, newCatProc, sb.toString(), "1");
 
         // insert to stream
@@ -838,10 +841,32 @@ public abstract class StatementCompiler {
         sb.append(String.join(",", questions) + ");");
         addStatement(streamTable, newCatProc, sb.toString(), "2");
 
+        // update
+        Collection<Column> keys = CatalogUtil.getPrimaryKeyColumns(catTable);
+        if (!keys.isEmpty()) {
+            sb = new StringBuilder();
+            sb.append("UPDATE " + catTable.getTypeName());
+            sb.append(" SET EXPORTED =1 WHERE " + keys.iterator().next().getName() + "=?;");
+            addStatement(catTable, newCatProc, sb.toString(), "3");
+        }
+
         // determine offset
-        String valueAtQuery = genValueAtOffsetSqlForNibbleDelete(catTable, col, comp);
-        addStatement(catTable, newCatProc, valueAtQuery, "3");
+        String valueAtQuery = genValueAtOffsetSqlForNibbleExport(catTable, col, comp);
+        addStatement(catTable, newCatProc, valueAtQuery, "4");
         return newCatProc;
+    }
+
+    private static String genValueAtOffsetSqlForNibbleExport(Table table, Column column,
+            ComparisonOperation comparison) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("SELECT " + column.getName() + " FROM " + table.getTypeName());
+        sb.append(" WHERE EXPORTED = 0 ORDER BY " + column.getName());
+        if (comparison == ComparisonOperation.LTE || comparison == ComparisonOperation.LT) {
+            sb.append(" ASC OFFSET ? LIMIT 1;");
+        } else {
+            sb.append(" DESC OFFSET ? LIMIT 1;");
+        }
+        return sb.toString();
     }
 
     private static String getSortedColumnNames(Table table) {

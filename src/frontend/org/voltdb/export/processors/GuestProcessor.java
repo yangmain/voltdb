@@ -40,9 +40,9 @@ import org.voltdb.export.AdvertisedDataSource;
 import org.voltdb.export.ExportDataProcessor;
 import org.voltdb.export.ExportDataSource;
 import org.voltdb.export.ExportDataSource.AckingContainer;
+import org.voltdb.export.ExportDataSource.NibbleDeleter;
 import org.voltdb.export.ExportDataSource.ReentrantPollException;
 import org.voltdb.export.ExportGeneration;
-import org.voltdb.export.ExportDataSource.NibbleDeletingContainer;
 import org.voltdb.export.StreamBlockQueue;
 import org.voltdb.exportclient.ExportClientBase;
 import org.voltdb.exportclient.ExportDecoderBase;
@@ -339,10 +339,11 @@ public class GuestProcessor implements ExportDataProcessor {
                     }
                     String nibbleDeleteTableName = m_nibbleDeleteTables.get(source.getTableName().toLowerCase());
                     String nibbleDeletePkCol = m_nibbleDeleteColumns.get(source.getTableName().toLowerCase());
+                    NibbleDeleter<?> nd = null;
                     try {
                         //Position to restart at on error
                         final int startPosition = cont.b().position();
-                        NibbleDeletingContainer<?> ndCont = null;
+                        //NibbleDeletingContainer<?> ndCont = null;
 
                         //Track the amount of backoff to use next time, will be updated on repeated failure
                         int backoffQuantity = 10 + (int)(10 * ThreadLocalRandom.current().nextDouble());
@@ -397,15 +398,11 @@ public class GuestProcessor implements ExportDataProcessor {
                                                     }
                                                 }
                                                 if (index > -1) {
-                                                    if (ndCont == null) {
-                                                        // replace the buffer container with a wrapper that invokes the delete
-                                                        ndCont = source.createDeleterInvocation(row.types.get(index),
-                                                                cont, nibbleDeleteTableName, row.names.get(index));
-
-                                                        // TO BE RESOLVED........................
-                                                        // cont = ndCont;
+                                                    if (nd == null) {
+                                                        nd = source.createNibbleDeleter(row.types.get(index), nibbleDeleteTableName, nibbleDeletePkCol);
+                                                        cont.setNibbleDeleter(nd);
                                                     }
-                                                    ndCont.addPk(row.values[index]);
+                                                    nd.addPk(row.values[index]);
                                                 }
                                             }
                                             edb.setPreviousRow(row);
