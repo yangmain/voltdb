@@ -470,12 +470,13 @@ public class ExportManager
                 }
             }
 
-            if (streams.size() == 1 && ttlExportTables.get(streams.iterator().next()) != null) {
+            String stream = streams.iterator().next();
+            if (streams.size() == 1 && ttlExportTables.get(stream) != null) {
                 Table t = ttlExportTables.get(streams.iterator().next());
                 Collection<Column> keys = CatalogUtil.getPrimaryKeyColumns(t);
                 assert(keys.size() == 1);
-                properties.put("primaryKeyCol", Integer.toString(keys.iterator().next().getIndex()));
-                properties.put("nibbleSourceTable", t.getTypeName());
+                properties.put(stream.toLowerCase() + ".primaryKeyCol", keys.iterator().next().getName());
+                properties.put(stream.toLowerCase() + ".nibbleSourceTable", t.getTypeName());
             }
 
             Pair<Properties, Set<String>> connConfig = new Pair<>(properties, streams);

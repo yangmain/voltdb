@@ -31,6 +31,7 @@ import java.util.Set;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadLocalRandom;
 
+import org.hsqldb_voltpatches.lib.StringUtil;
 import org.voltcore.logging.VoltLogger;
 import org.voltcore.utils.Pair;
 import org.voltdb.VoltDB;
@@ -63,9 +64,8 @@ public class GuestProcessor implements ExportDataProcessor {
     private Map<String, ExportClientBase> m_clientsByTarget = new HashMap<>();
     private Map<String, String> m_targetsByTableName = new HashMap<>();
     // Having this set to a negative number implies that this is not a nibble export stream
-    private String m_nibbleDeleteTableName = null;
-    private int m_nibbleDeletePkCol = -1;
-
+    private Map<String, String> m_nibbleDeleteTables = new HashMap<>();
+    private Map<String, String> m_nibbleDeleteColumns = new HashMap<>();
     private final List<Pair<ExportDecoderBase, AdvertisedDataSource>> m_decoders = new ArrayList<Pair<ExportDecoderBase, AdvertisedDataSource>>();
 
     private final long m_startTS = System.currentTimeMillis();
@@ -93,11 +93,17 @@ public class GuestProcessor implements ExportDataProcessor {
                 tableName = tableName.toLowerCase();
                 assert(!m_targetsByTableName.containsKey(tableName));
                 m_targetsByTableName.put(tableName, targetName);
+                String nibbleDeleteTableName = properties.getProperty(tableName + ".nibbleSourceTable");
+                String nibbleDeletePkCol = properties.getProperty(tableName + ".primaryKeyCol");
+
+                if (!StringUtil.isEmpty(nibbleDeleteTableName) && !StringUtil.isEmpty(nibbleDeletePkCol)) {
+                    m_nibbleDeleteTables.put(tableName, nibbleDeleteTableName);
+                    m_nibbleDeleteColumns.put(tableName, nibbleDeletePkCol);
+                }
+
             }
 
             String exportClientClass = properties.getProperty(EXPORT_TO_TYPE);
-            m_nibbleDeleteTableName = properties.getProperty("nibbleSourceTable", null);
-            m_nibbleDeletePkCol = Integer.parseInt(properties.getProperty("primaryKeyCol", "-1"));
             Preconditions.checkNotNull(exportClientClass, "export to type is undefined or custom export plugin class missing.");
 
             try {
@@ -331,6 +337,8 @@ public class GuestProcessor implements ExportDataProcessor {
                     if (cont == null) {
                         return;
                     }
+                    String nibbleDeleteTableName = m_nibbleDeleteTables.get(source.getTableName().toLowerCase());
+                    String nibbleDeletePkCol = m_nibbleDeleteColumns.get(source.getTableName().toLowerCase());
                     try {
                         //Position to restart at on error
                         final int startPosition = cont.b().position();
@@ -380,21 +388,29 @@ public class GuestProcessor implements ExportDataProcessor {
                                         try {
                                             cont.updateStartTime(System.currentTimeMillis());
                                             row = ExportRow.decodeRow(edb.getPreviousRow(), source.getPartitionId(), m_startTS, rowdata);
-                                            if (m_nibbleDeletePkCol >= 0) {
-                                                if (ndCont == null) {
-                                                    // replace the buffer container with a wrapper that invokes the delete
-                                                    ndCont = source.createDeleterInvocation(row.types.get(m_nibbleDeletePkCol),
-                                                            cont, m_nibbleDeleteTableName, row.names.get(m_nibbleDeletePkCol));
-
-
-                                                    // TO BE RESOLVED!
-                                                    //cont = ndCont;
+                                            int index = -1;
+                                            if (nibbleDeletePkCol != null) {
+                                                for (int i = 0; i < row.names.size(); i++) {
+                                                    if (nibbleDeletePkCol.equalsIgnoreCase(row.names.get(i))) {
+                                                        index = i;
+                                                        break;
+                                                    }
                                                 }
-                                                ndCont.addPk(row.values[m_nibbleDeletePkCol]);
+                                                if (index > -1) {
+                                                    if (ndCont == null) {
+                                                        // replace the buffer container with a wrapper that invokes the delete
+                                                        ndCont = source.createDeleterInvocation(row.types.get(index),
+                                                                cont, nibbleDeleteTableName, row.names.get(index));
+
+                                                        // TO BE RESOLVED........................
+                                                        // cont = ndCont;
+                                                    }
+                                                    ndCont.addPk(row.values[index]);
+                                                }
                                             }
                                             edb.setPreviousRow(row);
                                         } catch (IOException ioe) {
-                                            if (m_nibbleDeletePkCol >= 0) {
+                                            if (nibbleDeletePkCol != null) {
                                                 m_logger.warn("Failed decoding row (row not deleted) for partition " + source.getPartitionId() + ". " + ioe.getMessage());
                                             }
                                             else {

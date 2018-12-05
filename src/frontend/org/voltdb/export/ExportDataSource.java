@@ -168,6 +168,8 @@ public class ExportDataSource implements Comparable<ExportDataSource> {
     public final ArrayList<Integer> m_columnLengths = new ArrayList<>();
     private String m_partitionColumnName = "";
 
+    private String m_nibbleDeleteTableName = null;
+    private String m_nibbleDeleteColumnName = null;
     private static final boolean DISABLE_AUTO_GAP_RELEASE = Boolean.getBoolean("DISABLE_AUTO_GAP_RELEASE");
 
     static enum StreamStatus {
