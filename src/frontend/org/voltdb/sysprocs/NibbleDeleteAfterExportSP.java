@@ -22,9 +22,16 @@ import java.util.Map;
 
 import org.voltdb.DependencyPair;
 import org.voltdb.ParameterSet;
+import org.voltdb.ProcedureRunner;
+import org.voltdb.SQLStmt;
 import org.voltdb.SystemProcedureExecutionContext;
+import org.voltdb.VoltDB;
 import org.voltdb.VoltSystemProcedure;
 import org.voltdb.VoltTable;
+import org.voltdb.catalog.Column;
+import org.voltdb.catalog.Procedure;
+import org.voltdb.catalog.Statement;
+import org.voltdb.catalog.Table;
 
 public class NibbleDeleteAfterExportSP  extends VoltSystemProcedure {
 
@@ -41,6 +48,44 @@ public class NibbleDeleteAfterExportSP  extends VoltSystemProcedure {
 
     public VoltTable run(SystemProcedureExecutionContext ctx, int partitionParam,
             String tableName, String columnName, Object keys []) {
-        return null;
+
+        Table catTable = ctx.getDatabase().getTables().getIgnoreCase(tableName);
+        if (catTable == null) {
+            throw new VoltAbortException(
+                    String.format("Table %s doesn't present in catalog", tableName));
+        }
+        Column column = catTable.getColumns().get(columnName);
+        if (column == null) {
+            throw new VoltAbortException(
+                    String.format("Column %s does not exist in table %s", columnName, tableName));
+        }
+
+        ProcedureRunner pr = ctx.getSiteProcedureConnection().getNibbleExportDeleteProcRunner(
+                tableName + ".autogenNibbleExportDelete", catTable, column);
+
+        Procedure newCatProc = pr.getCatalogProcedure();
+        Statement deleteStmt = newCatProc.getStatements().get(VoltDB.ANON_STMT_NAME + "0");
+        if (deleteStmt == null) {
+            throw new VoltAbortException(String.format("Unable to find SQL statement for table %s.", tableName));
+        }
+
+        //TO DO: batch delete and aggregate results.
+        VoltTable results = null;
+        for (Object k : keys) {
+            Object[] params = {k};
+            results = executePrecompiledSQL(deleteStmt, params, false);
+        }
+        return results;
+    }
+
+    VoltTable executePrecompiledSQL(Statement catStmt, Object[] params, boolean replicated)
+            throws VoltAbortException {
+        SQLStmt stmt = new SQLStmt(catStmt.getSqltext());
+        if (replicated) {
+            stmt.setInCatalog(false);
+        }
+        m_runner.initSQLStmt(stmt, catStmt);
+        voltQueueSQL(stmt, params);
+        return voltExecuteSQL()[0];
     }
 }

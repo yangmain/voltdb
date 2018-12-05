@@ -313,17 +313,13 @@ public class LoadedProcedureSet {
                                                Table catTable,
                                                Column column,
                                                ComparisonOperation op,
-                                               Table stream)
-    {
+                                               Table stream) {
         ProcedureRunner pr = m_defaultProcCache.get(procName);
         if (pr == null) {
-            Procedure newCatProc =
-                    StatementCompiler.compileNibbleExportProcedure(
+            Procedure newCatProc = StatementCompiler.compileNibbleExportProcedure(
                             catTable, procName, column, op, stream);
             VoltProcedure voltProc = new ProcedureRunner.StmtProcedure();
             pr = new ProcedureRunner(voltProc, m_site, newCatProc);
-            // this will ensure any created fragment tasks know to load the plans
-            // for this plan-on-the-fly procedure
             pr.setProcNameToLoadForFragmentTasks(newCatProc.getTypeName());
             m_defaultProcCache.put(procName, pr);
         }
@@ -337,21 +333,16 @@ public class LoadedProcedureSet {
      */
     public ProcedureRunner getNibbleExportDeleteProc(String procName,
                                                Table catTable,
-                                               Column column)
-    {
+                                               Column column) {
         ProcedureRunner pr = m_defaultProcCache.get(procName);
         if (pr == null) {
-            Procedure newCatProc =
-                    StatementCompiler.compileNibbleExportDeleteProcedure(
+            Procedure newCatProc =  StatementCompiler.compileNibbleExportDeleteProcedure(
                             catTable, procName, column);
             VoltProcedure voltProc = new ProcedureRunner.StmtProcedure();
             pr = new ProcedureRunner(voltProc, m_site, newCatProc);
-            // this will ensure any created fragment tasks know to load the plans
-            // for this plan-on-the-fly procedure
             pr.setProcNameToLoadForFragmentTasks(newCatProc.getTypeName());
             m_defaultProcCache.put(procName, pr);
         }
         return pr;
     }
-
 }

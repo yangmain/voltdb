@@ -856,11 +856,9 @@ public abstract class StatementCompiler {
 
     public static Procedure compileNibbleExportDeleteProcedure(Table catTable, String procName, Column col) {
         Procedure newCatProc = addProcedure(catTable, procName);
-
         StringBuilder sb = new StringBuilder();
         sb.append("DELETE FROM " + catTable.getTypeName());
-        sb.append(" WHERE " + col.getName() + " = ?;");
-
+        sb.append(" WHERE " + col.getName() + "= ?;");
         addStatement(catTable, newCatProc, sb.toString(), "0");
         return newCatProc;
     }
