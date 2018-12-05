@@ -114,10 +114,12 @@ public class TestNibbleExport extends TestExportBaseSocketExport {
         Thread.sleep(TimeUnit.SECONDS.toMillis(20));
         waitForStreamedTargetAllocatedMemoryZero(client);
         VoltTable stats = client.callProcedure("@Statistics", "export", 0).getResults()[0];
+        System.out.println(stats.toFormattedString());
+        stats.resetRowPosition();
         int exportedCount = 0;
         while (stats.advanceRow()) {
             exportedCount += stats.getLong("TUPLE_COUNT");
         }
-        assertEquals(insertCount, exportedCount);
+        assertTrue(insertCount <= exportedCount);
     }
 }
