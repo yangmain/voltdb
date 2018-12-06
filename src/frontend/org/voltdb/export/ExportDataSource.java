@@ -1122,7 +1122,7 @@ public class ExportDataSource implements Comparable<ExportDataSource> {
             }
             try {
                 exportDelete.setParams(partitionKey, m_nibbleDeleteTableName, m_nibbleDeleteColName, m_pkList.toArray());
-                m_generation.startNibbleDeleteTransaction(exportDelete, m_partitionId, new NibbleDeleteCB());
+                ExportManager.instance().startNibbleDeleteTransaction(exportDelete, m_partitionId, new NibbleDeleteCB());
             } catch (Exception e) {
                 exportLog.error("Error acking export buffer", e);
             } catch (Error e) {

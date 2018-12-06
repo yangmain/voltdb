@@ -4122,7 +4122,7 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback, HostM
         ExportManager.instance().startPolling(m_catalogContext);
 
         // Notify Export Subsystem of clientInterface so it can register an adaptor for NibbleExportDelete
-        ExportManager.clientInterfaceStarted(m_clientInterface);
+        ExportManager.instance().clientInterfaceStarted(m_clientInterface);
 
         //Tell import processors that they can start ingesting data.
         ImportManager.instance().readyForData();
@@ -4355,7 +4355,7 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback, HostM
             // as at this juncture the initial truncation snapshot is already complete
             ExportManager.instance().startPolling(m_catalogContext);
             // Notify Export Subsystem of clientInterface so it can register an adaptor for NibbleExportDelete
-            ExportManager.clientInterfaceStarted(m_clientInterface);
+            ExportManager.instance().clientInterfaceStarted(m_clientInterface);
             //Tell import processors that they can start ingesting data.
             ImportManager.instance().readyForData();
 

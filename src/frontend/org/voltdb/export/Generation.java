@@ -44,6 +44,4 @@ public interface Generation {
                                                 boolean isRecover, long sequenceNumber);
 
     public Map<Integer, Map<String, ExportDataSource>> getDataSourceByPartition();
-
-    public void startNibbleDeleteTransaction(StoredProcedureInvocation spi, int partition, Callback cb);
 }

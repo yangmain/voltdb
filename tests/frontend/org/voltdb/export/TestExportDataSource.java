@@ -54,8 +54,6 @@ import org.voltcore.utils.CoreUtils;
 import org.voltcore.utils.Pair;
 import org.voltdb.ExportStatsBase.ExportStatsRow;
 import org.voltdb.MockVoltDB;
-import org.voltdb.SimpleClientResponseAdapter.Callback;
-import org.voltdb.StoredProcedureInvocation;
 import org.voltdb.VoltDB;
 import org.voltdb.VoltType;
 import org.voltdb.catalog.Table;
@@ -132,10 +130,6 @@ public class TestExportDataSource extends TestCase {
         @Override
         public Map<Integer, Map<String, ExportDataSource>> getDataSourceByPartition() {
             throw new UnsupportedOperationException("Not supported yet.");
-        }
-
-        @Override
-        public void startNibbleDeleteTransaction(StoredProcedureInvocation spi, int partition, Callback cb) {
         }
     }
 

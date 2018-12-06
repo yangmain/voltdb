@@ -97,9 +97,6 @@ public class ExportGeneration implements Generation {
 
     private Mailbox m_mbox = null;
 
-    private SimpleClientResponseAdapter m_adapter;
-    private ClientInterface m_ci;
-
     private volatile boolean shutdown = false;
 
     private static final ListeningExecutorService m_childUpdatingThread =
@@ -144,14 +141,6 @@ public class ExportGeneration implements Generation {
         if (!onDiskPartitions.isEmpty()) {
             createAckMailboxesIfNeeded(messenger, onDiskPartitions);
         }
-    }
-
-
-    void clientInterfaceStarted(ClientInterface clientInterface) {
-        m_ci = clientInterface;
-        m_adapter = new SimpleClientResponseAdapter(ClientInterface.EXPORT_NIBBLE_DELETE_CID,
-                                                    "ExportNibbleDeleteAdapter");
-        m_ci.bindAdapter(m_adapter, null);
     }
 
     private List<Integer> initializeGenerationFromDisk(HostMessenger messenger, List<Pair<Integer, Integer>> localPartitionsToSites) {
@@ -881,12 +870,4 @@ public class ExportGeneration implements Generation {
     public String toString() {
         return "Export Generation";
     }
-
-    public void startNibbleDeleteTransaction(StoredProcedureInvocation spi, int partition, Callback cb) {
-        Long handle = m_adapter.registerCallback(cb);
-        spi.setClientHandle(handle);
-        m_ci.createTransaction(m_adapter.connectionId(), spi, false, true, false, partition, spi.getSerializedSize(),
-                System.nanoTime());
-    }
-
 }
