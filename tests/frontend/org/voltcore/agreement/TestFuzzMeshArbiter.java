@@ -560,6 +560,7 @@ public class TestFuzzMeshArbiter
     }
 
     @Test
+    @Flaky
     public void testSimpleJoin() throws InterruptedException {
         m_rejoinLog.info("testSimpleJoin");
         // Fill the array if you want to use specific per-site random seed to reproduce an issue.
