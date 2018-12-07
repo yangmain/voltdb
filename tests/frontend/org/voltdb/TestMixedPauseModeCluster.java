@@ -29,7 +29,9 @@ import static org.junit.Assert.assertTrue;
 import java.io.IOException;
 
 import org.junit.BeforeClass;
+import org.junit.Rule;
 import org.junit.Test;
+import org.voltdb.FlakyTestRule.Flaky;
 import org.voltdb.VoltDB.Configuration;
 import org.voltdb.client.Client;
 import org.voltdb.client.ClientFactory;
@@ -41,6 +43,9 @@ import org.voltdb.regressionsuites.JUnit4LocalClusterTest;
 import org.voltdb.regressionsuites.LocalCluster;
 
 public class TestMixedPauseModeCluster extends JUnit4LocalClusterTest {
+
+    @Rule
+    public FlakyTestRule ftRule = new FlakyTestRule();
 
     static final int K = 1;
 
@@ -199,6 +204,7 @@ public class TestMixedPauseModeCluster extends JUnit4LocalClusterTest {
     }
 
     @Test
+    @Flaky
     public void testJoins() throws InterruptedException {
         try {
             MixedPauseCluster cluster = null;

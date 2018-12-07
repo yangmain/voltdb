@@ -23,6 +23,10 @@
 
 package org.voltdb;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -43,19 +47,25 @@ import java.util.stream.IntStream;
 
 import org.json_voltpatches.JSONException;
 import org.junit.Ignore;
+import org.junit.Rule;
+import org.junit.Test;
 import org.voltdb.AbstractTopology.HAGroup;
 import org.voltdb.AbstractTopology.Host;
 import org.voltdb.AbstractTopology.HostDescription;
 import org.voltdb.AbstractTopology.KSafetyViolationException;
 import org.voltdb.AbstractTopology.Partition;
 import org.voltdb.AbstractTopology.PartitionDescription;
+import org.voltdb.FlakyTestRule.Flaky;
 
 import com.google_voltpatches.common.collect.Lists;
 import com.google_voltpatches.common.collect.Maps;
 
 import junit.framework.TestCase;
 
-public class TestAbstractTopology extends TestCase {
+public class TestAbstractTopology {
+
+    @Rule
+    public FlakyTestRule ftRule = new FlakyTestRule();
 
     static class TestDescription {
         HostDescription[] hosts;
@@ -226,11 +236,13 @@ public class TestAbstractTopology extends TestCase {
         }
     }
 
+    @Test
     public void testOneNode() throws JSONException {
         TestDescription td = getBoringDescription(1, 5, 0, 1, 1);
         subTestDescription(td, false);
     }
 
+    @Test
     public void testTwoNodesTwoRacks() throws JSONException {
         TestDescription td = getBoringDescription(2, 7, 1, 2, 2);
         AbstractTopology topo = subTestDescription(td, false);
@@ -250,21 +262,25 @@ public class TestAbstractTopology extends TestCase {
         validate(topo);
     }
 
+    @Test
     public void testThreeNodeOneRack() throws JSONException {
         TestDescription td = getBoringDescription(3, 4, 1, 1, 1);
         subTestDescription(td, false);
     }
 
+    @Test
     public void testFiveNodeK1OneRack() throws JSONException {
         TestDescription td = getBoringDescription(5, 2, 1, 1, 1);
         subTestDescription(td, true);
     }
 
+    @Test
     public void testFiveNodeK1TwoRacks() throws JSONException {
         TestDescription td = getBoringDescription(5, 6, 1, 1, 2);
         subTestDescription(td, false);
     }
 
+    @Test
     public void testTooManyPartitions() {
         TestDescription td = getBoringDescription(5, 6, 1, 2, 1);
         td.partitions[0] = new PartitionDescription(td.partitions[0].k + 1);
@@ -278,6 +294,7 @@ public class TestAbstractTopology extends TestCase {
         }
     }
 
+    @Test
     public void testKTooLarge() {
         HostDescription[] hds = new HostDescription[3];
         hds[0] = new HostDescription(0, 2, "0");
@@ -297,6 +314,7 @@ public class TestAbstractTopology extends TestCase {
         }
     }
 
+    @Test
     public void testSubtleKTooLarge() {
         HostDescription[] hds = new HostDescription[3];
         hds[0] = new HostDescription(0, 4, "0");
@@ -316,6 +334,7 @@ public class TestAbstractTopology extends TestCase {
         }
     }
 
+    @Test
     public void testNonUniqueHostIds() {
         HostDescription[] hds = new HostDescription[3];
         hds[0] = new HostDescription(201, 1, "0");
@@ -347,6 +366,7 @@ public class TestAbstractTopology extends TestCase {
         }
     }
 
+    @Test
     public void testSortByDistance() {
         Map<Integer, String> hostGroups = new HashMap<Integer, String>();
         hostGroups.put(0, "rack1.node1");
@@ -431,6 +451,7 @@ public class TestAbstractTopology extends TestCase {
         assertTrue(err == null); // expect balanced layout
     }
 
+    @Test
     public void testRandomHAGroups() throws JSONException {
         for (int i = 0; i < 200; i++) {
             runRandomHAGroupsTest();
@@ -646,6 +667,7 @@ public class TestAbstractTopology extends TestCase {
         return getBoringDescription(hostCount, sph, k, treeWidth, leafCount, hostIdOffset);
     }
 
+    @Test
     public void testManyBoringClusters() throws JSONException {
         Random rand = new Random();
 
@@ -748,6 +770,8 @@ public class TestAbstractTopology extends TestCase {
         td.expectedPartitionGroups = Integer.MAX_VALUE;
     }
 
+    @Test
+    @Flaky
     public void testManySlightlyImperfectCluster() throws JSONException {
         Random rand = new Random();
 
@@ -766,6 +790,7 @@ public class TestAbstractTopology extends TestCase {
         }
     }
 
+    @Test
     public void testTotalChaos() throws JSONException {
         Random rand = new Random();
 
@@ -775,6 +800,7 @@ public class TestAbstractTopology extends TestCase {
         }
     }
 
+    @Test
     public void testManyExpandingBoringWithBoring() throws JSONException {
         Random rand = new Random();
 
@@ -793,6 +819,7 @@ public class TestAbstractTopology extends TestCase {
      * generate topology multiple times and validate the same topology
      * @throws InterruptedException
      */
+    @Test
     public void testTopologyStatibility() throws InterruptedException {
         Map<Integer, String> hostGroups = new HashMap<>();
         hostGroups.put(0, "g0");

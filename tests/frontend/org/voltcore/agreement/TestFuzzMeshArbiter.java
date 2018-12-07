@@ -25,6 +25,8 @@ package org.voltcore.agreement;
 
 import static com.google_voltpatches.common.base.Predicates.equalTo;
 import static com.google_voltpatches.common.base.Predicates.not;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -37,10 +39,15 @@ import java.util.Random;
 import java.util.Set;
 import java.util.TreeMap;
 
+import org.junit.After;
+import org.junit.Rule;
+import org.junit.Test;
 import org.voltcore.agreement.MiniNode.NodeState;
 import org.voltcore.logging.VoltLogger;
 import org.voltcore.messaging.HostMessenger;
 import org.voltcore.utils.CoreUtils;
+import org.voltdb.FlakyTestRule;
+import org.voltdb.FlakyTestRule.Flaky;
 
 import com.google_voltpatches.common.base.Preconditions;
 import com.google_voltpatches.common.collect.ImmutableSortedMap;
@@ -48,11 +55,12 @@ import com.google_voltpatches.common.collect.Maps;
 import com.google_voltpatches.common.collect.Sets;
 import com.google_voltpatches.common.primitives.Ints;
 
-import junit.framework.TestCase;
 
-
-public class TestFuzzMeshArbiter extends TestCase
+public class TestFuzzMeshArbiter
 {
+    @Rule
+    public FlakyTestRule ftRule = new FlakyTestRule();
+
     public static VoltLogger m_fuzzLog = new VoltLogger("FUZZ");
     public static VoltLogger m_rejoinLog = new VoltLogger("REJOIN");
 
@@ -93,7 +101,7 @@ public class TestFuzzMeshArbiter extends TestCase
         }
     }
 
-    @Override
+    @After
     public void tearDown() throws InterruptedException
     {
         for (MiniNode node : m_nodes.values()) {
@@ -139,6 +147,7 @@ public class TestFuzzMeshArbiter extends TestCase
         return result;
     }
 
+    @Test
     public void testNodeFail() throws InterruptedException
     {
         m_rejoinLog.info("testNodeFail");
@@ -158,6 +167,7 @@ public class TestFuzzMeshArbiter extends TestCase
         state.expect();
     }
 
+    @Test
     public void testLinkFail() throws InterruptedException
     {
         m_rejoinLog.info("testLinkFail");
@@ -177,6 +187,7 @@ public class TestFuzzMeshArbiter extends TestCase
         state.expect();
     }
 
+    @Test
     public void testUnidirectionalLinkFailure() throws InterruptedException {
         m_rejoinLog.info("testUnidirectionalLinkFailure");
         // Fill the array if you want to use specific per-site random seed to reproduce an issue.
@@ -548,6 +559,7 @@ public class TestFuzzMeshArbiter extends TestCase
         }
     }
 
+    @Test
     public void testSimpleJoin() throws InterruptedException {
         m_rejoinLog.info("testSimpleJoin");
         // Fill the array if you want to use specific per-site random seed to reproduce an issue.
@@ -585,6 +597,8 @@ public class TestFuzzMeshArbiter extends TestCase
         }
     }
 
+    @Test
+    @Flaky
     public void testFuzz() throws InterruptedException
     {
         m_rejoinLog.info("testFuzz");
