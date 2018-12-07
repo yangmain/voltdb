@@ -23,6 +23,8 @@
 
 package org.voltdb.regressionsuites;
 
+import static org.junit.Assume.assumeTrue;
+
 import java.io.IOException;
 import java.util.HashSet;
 import java.util.Set;
@@ -113,7 +115,11 @@ public class TestStopNode extends RegressionSuite
         }
     }
 
+    //@Flaky
     public void testStopNode() throws Exception {
+        // TODO: temporarily ignore this test, until @Flaky works on RegressionSuite sub-classes
+        assumeTrue(false);
+
         Client client = ClientFactory.createClient();
 
         client.createConnection("localhost", m_config.port(0));
