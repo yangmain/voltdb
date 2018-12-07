@@ -37,7 +37,6 @@ import org.junit.rules.TestRule;
 import org.junit.runner.Description;
 import org.junit.runners.model.FrameworkMethod;
 import org.junit.runners.model.Statement;
-import org.voltdb.ConditionallyIgnoreFlakyJUnitTests.IgnoreCondition;
 import org.voltdb.FlakyTestRule.FlakyTestIgnore;
 
 public class FlakyTestRule implements MethodRule {
