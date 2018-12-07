@@ -47,7 +47,7 @@ public class FlakyTestRule implements MethodRule {
      * pass reliably, failing either intermittently or consistently; such tests
      * may or may not be skipped, depending on several factors:
      *     o The value of the system property FOO, when running the tests
-     *     o 
+     *     o
      * but may be run by specifying a system property. Once they pass
      * reliably again, the @Flaky annotation may be removed.
      * <p>
