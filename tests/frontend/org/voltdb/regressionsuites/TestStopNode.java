@@ -32,6 +32,7 @@ import java.util.concurrent.CountDownLatch;
 
 import org.voltdb.BackendTarget;
 import org.voltdb.VoltTable;
+import org.voltdb.FlakyTestRule.Flaky;
 import org.voltdb.client.Client;
 import org.voltdb.client.ClientFactory;
 import org.voltdb.client.ClientResponse;
@@ -117,7 +118,7 @@ public class TestStopNode extends RegressionSuite
 
     //@Flaky
     public void testStopNode() throws Exception {
-        // TODO: temporarily ignore this test, until @Flaky works on RegressionSuite sub-classes
+        // TODO: temporarily "ignore" this test, until @Flaky works on RegressionSuite sub-classes
         assumeTrue(false);
 
         Client client = ClientFactory.createClient();
@@ -317,7 +318,11 @@ public class TestStopNode extends RegressionSuite
         assertFalse(lostConnect);
     }
 
+    //@Flaky
     public void testMixStopNodeWithNodeFailure() throws Exception {
+        // TODO: temporarily "ignore" this test, until @Flaky works on RegressionSuite sub-classes
+        assumeTrue(false);
+
         if (kfactor < 1) return;
 
         Client client = ClientFactory.createClient();
