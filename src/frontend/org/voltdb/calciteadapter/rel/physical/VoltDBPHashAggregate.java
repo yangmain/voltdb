@@ -24,6 +24,8 @@ import org.apache.calcite.rel.RelWriter;
 import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.util.ImmutableBitSet;
+import org.voltdb.plannodes.AggregatePlanNode;
+import org.voltdb.plannodes.HashAggregatePlanNode;
 
 import java.util.List;
 
@@ -147,6 +149,10 @@ public class VoltDBPHashAggregate extends AbstractVoltDBPAggregate {
                 havingExpression,
                 splitCount,
                 isCoordinatorAggr);
+    }
 
+    @Override
+    protected AggregatePlanNode getAggregatePlanNode() {
+        return new HashAggregatePlanNode();
     }
 }

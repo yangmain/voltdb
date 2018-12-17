@@ -17,6 +17,7 @@
 
 package org.voltdb.expressions;
 
+import java.util.Deque;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -157,9 +158,9 @@ public abstract class ExpressionUtil {
      */
     public static Collection<AbstractExpression> uncombineAny(AbstractExpression expr)
     {
-        ArrayDeque<AbstractExpression> out = new ArrayDeque<AbstractExpression>();
+        Deque<AbstractExpression> out = new ArrayDeque<AbstractExpression>();
         if (expr != null) {
-            ArrayDeque<AbstractExpression> in = new ArrayDeque<AbstractExpression>();
+            Deque<AbstractExpression> in = new ArrayDeque<AbstractExpression>();
             // this chunk of code breaks the code into a list of expression that
             // all have to be true for the where clause to be true
             in.add(expr);
@@ -249,7 +250,7 @@ public abstract class ExpressionUtil {
     public static List<TupleValueExpression>
     getTupleValueExpressions(AbstractExpression input)
     {
-        ArrayList<TupleValueExpression> tves =
+        List<TupleValueExpression> tves =
             new ArrayList<TupleValueExpression>();
         // recursive stopping steps
         if (input == null)

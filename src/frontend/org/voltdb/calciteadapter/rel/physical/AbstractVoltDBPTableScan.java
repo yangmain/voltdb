@@ -30,10 +30,20 @@ import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexLiteral;
+import org.apache.calcite.rex.RexLocalRef;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.rex.RexProgram;
+import org.voltdb.calciteadapter.converter.RexConverter;
 import org.voltdb.calciteadapter.rel.AbstractVoltDBTableScan;
+import org.voltdb.calciteadapter.rel.util.PlanCostUtil;
 import org.voltdb.calciteadapter.rel.VoltTable;
+import org.voltdb.plannodes.AbstractPlanNode;
+import org.voltdb.plannodes.AbstractScanPlanNode;
+import org.voltdb.plannodes.AggregatePlanNode;
+import org.voltdb.plannodes.ProjectionPlanNode;
+import org.voltdb.plannodes.HashAggregatePlanNode;
+
+import java.util.Arrays;
 
 /**
  * Abstract sub-class of {@link AbstractVoltDBTableScan}
@@ -251,6 +261,14 @@ public abstract class AbstractVoltDBPTableScan extends AbstractVoltDBTableScan i
         return rowCount;
     }
 
+    protected double estimateRowCountWithPredicate(double rowCount) {
+        if (m_program != null && m_program.getCondition() != null) {
+            return PlanCostUtil.discountRowCountTableScan(rowCount, m_program);
+        } else {
+            return rowCount;
+        }
+    }
+
     private boolean hasLimitOffset() {
         return (m_limit != null || m_offset != null);
     }
@@ -258,6 +276,58 @@ public abstract class AbstractVoltDBPTableScan extends AbstractVoltDBTableScan i
     @Override
     public int getSplitCount() {
         return m_splitCount;
+    }
+
+    /**
+     * Convert Scan's predicate to AbstractExpression
+     * @param plan
+     * @return
+     */
+    protected void addPredicate(AbstractScanPlanNode plan) {
+        // if there is an inline aggregate, the scan's program is saved as m_preAggregateProgram
+        final RexProgram program = m_aggregate == null ? m_program : m_preAggregateProgram;
+        assert program != null;
+        final RexLocalRef condition = program.getCondition();
+        if (condition != null) {
+            plan.setPredicate(Arrays.asList(RexConverter.convert(program.expandLocalRef(condition))));
+        }
+    }
+
+    protected void addLimitOffset(AbstractPlanNode plan) {
+        if (hasLimitOffset()) {
+            plan.addInlinePlanNode(VoltDBPLimit.toPlanNode(m_limit, m_offset));
+        }
+    }
+
+    protected void addProjection(AbstractPlanNode plan) {
+        // if there is an inline aggregate, the scan's program is saved as m_preAggregateProgram
+        final RexProgram program = m_aggregate == null ? m_program : m_preAggregateProgram;
+        assert program != null;
+        final ProjectionPlanNode ppn = new ProjectionPlanNode();
+        ppn.setOutputSchemaWithoutClone(RexConverter.convertToVoltDBNodeSchema(program));
+        plan.addInlinePlanNode(ppn);
+    }
+
+
+    /**
+     * Convert Scan's aggregate to an inline AggregatePlanNode / HashAggregatePlanNode
+     * @param node
+     * @return
+     */
+    protected void addAggregate(AbstractPlanNode plan) {
+        if (m_aggregate != null) {
+            assert m_preAggregateRowType != null;
+            final AbstractPlanNode aggr = ((AbstractVoltDBPAggregate) m_aggregate).toPlanNode(m_preAggregateRowType);
+            aggr.clearChildren();
+            plan.addInlinePlanNode(aggr);
+            plan.setOutputSchema(aggr.getOutputSchema());
+            plan.setHaveSignificantOutputSchema(true);
+            // Inline limit /offset with Serial Aggregate only. This is enforced by the VoltDBPLimitScanMergeRule.
+            // The VoltDBPAggregateScanMergeRule should be triggered prior to the VoltDBPLimitScanMergeRule
+            // allowing the latter to avoid merging VoltDBLimit and Scan nodes if the scan already has an inline aggregate
+            assert (aggr instanceof HashAggregatePlanNode && !hasLimitOffset()) || aggr instanceof AggregatePlanNode;
+            addLimitOffset(aggr);
+        }
     }
 
 }
