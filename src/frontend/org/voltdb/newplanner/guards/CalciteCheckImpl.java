@@ -20,7 +20,7 @@ package org.voltdb.newplanner.guards;
 import org.apache.calcite.sql.parser.SqlParseException;
 import org.voltdb.newplanner.SqlTask;
 import org.voltdb.newplanner.SqlTaskImpl;
-import org.voltdb.planner.PlanningErrorException;
+import org.voltdb.exceptions.PlanningErrorException;
 
 /**
  * A check that always fail.

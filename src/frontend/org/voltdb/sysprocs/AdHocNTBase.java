@@ -41,6 +41,7 @@ import org.voltdb.client.ClientResponse;
 import org.voltdb.compiler.AdHocPlannedStatement;
 import org.voltdb.compiler.AdHocPlannedStmtBatch;
 import org.voltdb.compiler.PlannerTool;
+import org.voltdb.exceptions.AdHocPlanningException;
 import org.voltdb.newplanner.NonDdlBatch;
 import org.voltdb.newplanner.NonDdlBatchCompiler;
 import org.voltdb.newplanner.SqlBatch;
@@ -163,31 +164,14 @@ public abstract class AdHocNTBase extends UpdateApplicationBase {
         return hasDDL ? AdHocSQLMix.ALL_DDL : AdHocSQLMix.ALL_DML_OR_DQL;
     }
 
-    public static class AdHocPlanningException extends Exception {
-        private static final long serialVersionUID = 1L;
-
-        public AdHocPlanningException(String message) {
-            super(message);
-        }
-        public AdHocPlanningException(String message, Throwable cause) {
-            super(message, cause);
-        }
-    }
-
     /**
      * Compile a batch of one or more SQL statements into a set of plans.
      * Parameters are valid iff there is exactly one DML/DQL statement.
      */
-    public static AdHocPlannedStatement compileAdHocSQL(PlannerTool plannerTool,
-                                                        String sqlStatement,
-                                                        boolean inferPartitioning,
-                                                        Object userPartitionKey,
-                                                        ExplainMode explainMode,
-                                                        boolean isLargeQuery,
-                                                        boolean isSwapTables,
-                                                        Object[] userParamSet)
-                                                                throws AdHocPlanningException
-    {
+    public static AdHocPlannedStatement compileAdHocSQL(
+            PlannerTool plannerTool, String sqlStatement, boolean inferPartitioning,
+            Object userPartitionKey, ExplainMode explainMode, boolean isLargeQuery,
+            boolean isSwapTables, Object[] userParamSet) throws AdHocPlanningException {
         assert(plannerTool != null);
         assert(sqlStatement != null);
         final PlannerTool ptool = plannerTool;

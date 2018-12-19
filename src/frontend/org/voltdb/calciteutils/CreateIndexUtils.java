@@ -36,9 +36,9 @@ import org.voltdb.catalog.Index;
 import org.voltdb.catalog.Table;
 import org.voltdb.calciteadapter.CatalogAdapter;
 import org.voltdb.compiler.DDLCompiler;
+import org.voltdb.exceptions.PlanningErrorException;
 import org.voltdb.expressions.AbstractExpression;
 import org.voltdb.expressions.TupleValueExpression;
-import org.voltdb.planner.PlanningErrorException;
 import org.voltdb.types.ConstraintType;
 import org.voltdb.types.IndexType;
 

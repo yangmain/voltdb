@@ -15,23 +15,15 @@
  * along with VoltDB.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.voltdb.planner;
+package org.voltdb.exceptions;
 
-public class PlanningErrorException extends RuntimeException {
-    private static final long serialVersionUID = 1L;
-
-    public PlanningErrorException(String msg) {
-        super(msg);
-    }
-
-    /**
-     * Create an exception with stacktrace erased. Used for reporting
-     * parsing/validation errors without the long backtrace list, to mimick
-     * user-observable error message from VoltCompiler.VoltCompilerException.
-     * @param msg exception message
-     * @param ignored not used
-     */
-    public PlanningErrorException(String msg, int ignored) {
-        super(msg, null, true, false);
-    }
+public class AdHocPlanningException extends PlanningErrorException {
+   private static final long serialVersionID = 1l;
+   public AdHocPlanningException(String msg) {
+      super(msg);
+   }
+   public AdHocPlanningException(String msg, Throwable cause) {
+      super(msg, cause);
+   }
 }
+

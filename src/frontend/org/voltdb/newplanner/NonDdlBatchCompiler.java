@@ -28,7 +28,7 @@ import org.voltdb.VoltType;
 import org.voltdb.compiler.AdHocPlannedStatement;
 import org.voltdb.compiler.AdHocPlannedStmtBatch;
 import org.voltdb.compiler.PlannerTool;
-import org.voltdb.sysprocs.AdHocNTBase.AdHocPlanningException;
+import org.voltdb.exceptions.AdHocPlanningException;
 
 /**
  * A compiler that compiles a non-DDL batch.

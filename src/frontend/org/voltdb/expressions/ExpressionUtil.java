@@ -30,7 +30,7 @@ import java.util.Set;
 import java.util.Stack;
 
 import org.voltdb.VoltType;
-import org.voltdb.planner.PlanningErrorException;
+import org.voltdb.exceptions.PlanningErrorException;
 import org.voltdb.types.ExpressionType;
 
 /**
@@ -128,9 +128,8 @@ public abstract class ExpressionUtil {
     {
         if (expr == null) {
             return new ArrayList<AbstractExpression>();
-        }
-        if (expr instanceof ConjunctionExpression) {
-            ConjunctionExpression conj = (ConjunctionExpression)expr;
+        } else if (expr instanceof ConjunctionExpression) {
+            ConjunctionExpression conj = (ConjunctionExpression) expr;
             if (conj.getExpressionType() == ExpressionType.CONJUNCTION_AND) {
                 // Calculate the list for the tree or leaf on the left.
                 List<AbstractExpression> branch = uncombinePredicate(conj.getLeft());

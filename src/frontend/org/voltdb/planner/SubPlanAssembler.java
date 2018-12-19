@@ -32,6 +32,7 @@ import org.voltdb.catalog.Column;
 import org.voltdb.catalog.ColumnRef;
 import org.voltdb.catalog.Database;
 import org.voltdb.catalog.Index;
+import org.voltdb.exceptions.PlanningErrorException;
 import org.voltdb.expressions.AbstractExpression;
 import org.voltdb.expressions.AbstractSubqueryExpression;
 import org.voltdb.expressions.ComparisonExpression;
@@ -101,8 +102,7 @@ public abstract class SubPlanAssembler {
     /// to eventually be applied as a post-filter.
     private final static boolean KEEP_IN_POST_FILTERS = false;
 
-    SubPlanAssembler(Database db, AbstractParsedStmt parsedStmt, StatementPartitioning partitioning)
-    {
+    SubPlanAssembler(Database db, AbstractParsedStmt parsedStmt, StatementPartitioning partitioning) {
         m_db = db;
         m_parsedStmt = parsedStmt;
         m_partitioning = partitioning;
@@ -127,10 +127,9 @@ public abstract class SubPlanAssembler {
      * @param postExprs post expressions this table is part of
      * @return List of valid access paths
      */
-    protected List<AccessPath> getRelevantAccessPathsForTable(StmtTableScan tableScan,
-            List<AbstractExpression> joinExprs,
-            List<AbstractExpression> filterExprs,
-            List<AbstractExpression> postExprs) {
+    protected List<AccessPath> getRelevantAccessPathsForTable(
+            StmtTableScan tableScan, List<AbstractExpression> joinExprs,
+            List<AbstractExpression> filterExprs, List<AbstractExpression> postExprs) {
         List<AccessPath> paths = new ArrayList<>();
         List<AbstractExpression> allJoinExprs = new ArrayList<>();
         List<AbstractExpression> allExprs = new ArrayList<>();
@@ -193,14 +192,13 @@ public abstract class SubPlanAssembler {
                 path = getRelevantNaivePath(allJoinExprs, filterExprs);
                 path.index = index;
                 path.lookupType = IndexLookupType.GTE;
-            }
-            else {
+            } else {
                 assert(path.index != null);
                 assert(path.index == index);
                 // This index on relevant column(s) may need to be rejected if
                 // its predicate is not applicable.
                 if ( ! predicatejson.isEmpty()) {
-                    exactMatchCoveringExprs = new ArrayList<>();
+                    exactMatchCoveringExprs.clear();
                     hasCoveredPredicate = isPartialIndexPredicateCovered(
                             tableScan, allExprs, predicatejson, exactMatchCoveringExprs);
                     if ( ! hasCoveredPredicate) {
@@ -213,8 +211,7 @@ public abstract class SubPlanAssembler {
             assert(path != null);
             if (hasCoveredPredicate) {
                 assert(exactMatchCoveringExprs != null);
-                filterPostPredicateForPartialIndex(path,
-                        exactMatchCoveringExprs);
+                filterPostPredicateForPartialIndex(path, exactMatchCoveringExprs);
             }
             if (postExprs != null) {
                 path.joinExprs.addAll(postExprs);
@@ -702,13 +699,10 @@ public abstract class SubPlanAssembler {
      * @param filterExprs
      * @return
      */
-    public static AccessPath processPartialIndex(Index index,
-            StmtTableScan tableScan,
-            AccessPath path,
-            Collection<AbstractExpression> allExprs,
-            Collection<AbstractExpression> allJoinExprs,
+    public static AccessPath processPartialIndex(
+            Index index, StmtTableScan tableScan, AccessPath path,
+            Collection<AbstractExpression> allExprs, Collection<AbstractExpression> allJoinExprs,
             Collection<AbstractExpression> filterExprs) {
-
         List<AbstractExpression> exactMatchCoveringExprs = null;
         boolean hasCoveredPredicate = false;
         String predicatejson = index.getPredicatejson();
@@ -719,8 +713,7 @@ public abstract class SubPlanAssembler {
             }
             exactMatchCoveringExprs = new ArrayList<>();
             hasCoveredPredicate = isPartialIndexPredicateCovered(
-                        tableScan, allExprs,
-                        predicatejson, exactMatchCoveringExprs);
+                        tableScan, allExprs, predicatejson, exactMatchCoveringExprs);
             if ( ! hasCoveredPredicate) {
                 // Skip the index with the inapplicable predicate.
                 return null;
@@ -755,11 +748,11 @@ public abstract class SubPlanAssembler {
         assert(path != null);
         if (hasCoveredPredicate) {
             assert(exactMatchCoveringExprs != null);
-            filterPostPredicateForPartialIndex(path,
-                    exactMatchCoveringExprs);
+            filterPostPredicateForPartialIndex(path, exactMatchCoveringExprs);
         }
         return path;
     }
+
     /**
      * Add access path details to an index scan.
      *
@@ -918,9 +911,7 @@ public abstract class SubPlanAssembler {
         try {
             indexPredicate = AbstractExpression.fromJSONString(predicatejson, tableScan);
         } catch (JSONException e) {
-            e.printStackTrace();
-            assert(false);
-            return false;
+            throw new PlanningErrorException(e);
         }
         List<AbstractExpression> exprsToCover = ExpressionUtil.uncombinePredicate(indexPredicate);
 

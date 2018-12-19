@@ -18,8 +18,8 @@ package org.voltdb.plannodes;
 
 import java.util.List;
 
+import org.voltdb.exceptions.PlanningErrorException;
 import org.voltdb.expressions.AbstractExpression;
-import org.voltdb.planner.PlanningErrorException;
 import org.voltdb.planner.SubPlanAssembler;
 import org.voltdb.types.SortDirectionType;
 
