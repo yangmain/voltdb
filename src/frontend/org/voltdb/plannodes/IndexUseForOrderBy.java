@@ -21,6 +21,7 @@ import java.util.List;
 import org.voltdb.exceptions.PlanningErrorException;
 import org.voltdb.expressions.AbstractExpression;
 import org.voltdb.planner.SubPlanAssembler;
+import org.voltdb.planner.WindowFunctionScoreboard;
 import org.voltdb.types.SortDirectionType;
 
 /**
@@ -32,12 +33,12 @@ public class IndexUseForOrderBy {
     // mark which window function it is here.
     // If this is SubPlanAssembler.STATEMENT_LEVEL_ORDER_BY_INDEX,
     // the statement level order by function uses this index.
-    // If this is SubPlanAssembler.NO_INDEX_USE, then nothing
+    // If this is WindowFunctionScoreboard.NO_INDEX_USE, then nothing
     // uses this index.
     //
     // This will be propagated into a scan plan from the access
     // path and up the outer branch of a join.
-    private int m_windowFunctionUsesIndex = SubPlanAssembler.NO_INDEX_USE;
+    private int m_windowFunctionUsesIndex = WindowFunctionScoreboard.NO_INDEX_USE;
     // If m_windowFunctionUsesIndex is non-negative, so that
     // the index is used to order a window function, but the
     //
@@ -65,7 +66,7 @@ public class IndexUseForOrderBy {
      * index, but there is a statement level order by which
      * uses an index, return SubPlanAssembler.STATEMENT_LEVEL_ORDER_BY_INDEX.
      * If nothing uses an index for ordering, return
-     * SubPlanAssember.NO_INDEX_USE.
+     * WindowFunctionScoreboard.NO_INDEX_USE.
      *
      * @return
      */
@@ -128,7 +129,7 @@ public class IndexUseForOrderBy {
      * index, but there is a statement level order by which
      * uses an index, return SubPlanAssembler.STATEMENT_LEVEL_ORDER_BY_INDEX.
      * If nothing uses an index for ordering, return
-     * SubPlanAssember.NO_INDEX_USE.
+     * WindowFunctionScoreboard.NO_INDEX_USE.
      *
      * @return
      */
