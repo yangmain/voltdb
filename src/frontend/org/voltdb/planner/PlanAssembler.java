@@ -312,7 +312,7 @@ public class PlanAssembler {
                 // Convert RIGHT joins to the LEFT ones
                 ((BranchNode)m_parsedSelect.m_joinTree).toLeftJoin();
             }
-            m_subAssembler = new SelectSubPlanAssembler(m_catalogDb, m_parsedSelect, m_partitioning);
+            m_subAssembler = new SelectSubPlanAssembler(m_parsedSelect, m_partitioning);
 
             // Process the GROUP BY information, decide whether it is group by the partition column
             if (isPartitionColumnInGroupbyList(m_parsedSelect.groupByColumns())) {
@@ -401,7 +401,7 @@ public class PlanAssembler {
             Collection<StmtTableScan> scans = parsedStmt.allScans();
             m_partitioning.analyzeForMultiPartitionAccess(scans, valueEquivalence);
         }
-        m_subAssembler = new WriterSubPlanAssembler(m_catalogDb, parsedStmt, m_partitioning);
+        m_subAssembler = new WriterSubPlanAssembler(parsedStmt, m_partitioning);
     }
 
     private boolean isPartitionColumnInWindowedAggregatePartitionByList() {
@@ -1657,13 +1657,11 @@ public class PlanAssembler {
                 // in getBestCostPlan, above.
                 throw new PlanningErrorException("INSERT INTO ... SELECT subquery could not be planned: "
                         + m_recentErrorMsg);
-
             }
 
             boolean targetIsExportTable = tableListIncludesExportOnly(m_parsedInsert.m_tableList);
             InsertSubPlanAssembler subPlanAssembler =
-                    new InsertSubPlanAssembler(m_catalogDb, m_parsedInsert, m_partitioning,
-                            targetIsExportTable);
+                    new InsertSubPlanAssembler(m_parsedInsert, m_partitioning, targetIsExportTable);
             AbstractPlanNode subplan = subPlanAssembler.nextPlan();
             if (subplan == null) {
                 throw new PlanningErrorException(subPlanAssembler.m_recentErrorMsg);

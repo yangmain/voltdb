@@ -19,13 +19,6 @@ package org.voltdb.planner;
 
 import java.util.*;
 
-import org.hsqldb_voltpatches.HSQLInterface;
-import org.voltdb.catalog.MaterializedViewInfo;
-import org.voltdb.catalog.Database;
-import org.voltdb.catalog.Table;
-import org.voltdb.compiler.DatabaseEstimates;
-import org.voltdb.compiler.DeterminismMode;
-import org.voltdb.compiler.VoltCompiler;
 import org.voltdb.exceptions.PlanningErrorException;
 import org.voltdb.expressions.AbstractExpression;
 import org.voltdb.expressions.ExpressionUtil;
@@ -66,14 +59,13 @@ public class SelectSubPlanAssembler extends SubPlanAssembler {
 
     /**
      *
-     * @param db The catalog's Database object.
      * @param selectStmt The parsed and dissected statement object describing the sql to execute.
      * @param partitioning in/out param first element is partition key value, forcing a single-partition statement if non-null,
      * second may be an inferred partition key if no explicit single-partitioning was specified
      */
-    SelectSubPlanAssembler(Database db, ParsedSelectStmt selectStmt, StatementPartitioning partitioning)
+    SelectSubPlanAssembler(ParsedSelectStmt selectStmt, StatementPartitioning partitioning)
     {
-        super(db, selectStmt, partitioning);
+        super(selectStmt, partitioning);
         if (selectStmt.hasJoinOrder()) {
             // If a join order was provided or large number of tables join
             m_joinOrders.addAll(selectStmt.getJoinOrder());
