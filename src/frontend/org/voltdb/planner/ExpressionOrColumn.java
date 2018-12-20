@@ -19,7 +19,6 @@ package org.voltdb.planner;
 import java.util.Collections;
 import java.util.List;
 
-import org.voltdb.catalog.Column;
 import org.voltdb.catalog.ColumnRef;
 import org.voltdb.expressions.AbstractExpression;
 import org.voltdb.expressions.TupleValueExpression;

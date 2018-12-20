@@ -23,6 +23,8 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import org.hsqldb_voltpatches.FunctionForVoltDB;
 import org.json_voltpatches.JSONException;
@@ -61,7 +63,6 @@ import org.voltdb.types.IndexType;
 import org.voltdb.types.JoinType;
 import org.voltdb.types.SortDirectionType;
 import org.voltdb.utils.CatalogUtil;
-import scala.collection.parallel.ParIterableLike;
 
 public abstract class SubPlanAssembler {
 
@@ -262,9 +263,7 @@ public abstract class SubPlanAssembler {
                 indexedExprs = AbstractExpression.fromJSONArrayString(exprsjson, tableScan);
                 keyComponentCount = indexedExprs.size();
             } catch (JSONException e) {
-                e.printStackTrace();
-                assert(false);
-                return null;
+                throw new PlanningErrorException(e);
             }
             indexIsGeographical = SubPlanAssembler.isAGeoExpressionIndex(indexedExprs);
         }
@@ -474,7 +473,7 @@ public abstract class SubPlanAssembler {
             // The simpler case "column LIKE prefix-constant"
             // has already been re-written by the HSQL parser
             // into separate upper and lower bound inequalities.
-            IndexableExpression doubleBoundExpr = getIndexableExpressionFromFilters(
+            final IndexableExpression doubleBoundExpr = getIndexableExpressionFromFilters(
                 ExpressionType.COMPARE_LIKE, ExpressionType.COMPARE_LIKE,
                 coveringExpr, coveringColId, tableScan, filtersToCover,
                 false, EXCLUDE_FROM_POST_FILTERS);
@@ -506,7 +505,7 @@ public abstract class SubPlanAssembler {
             }
 
             if (startingBoundExpr != null) {
-                AbstractExpression lowerBoundExpr = startingBoundExpr.getFilter();
+                final AbstractExpression lowerBoundExpr = startingBoundExpr.getFilter();
                 retval.indexExprs.add(lowerBoundExpr);
                 retval.bindings.addAll(startingBoundExpr.getBindings());
                 if (lowerBoundExpr.getExpressionType() == ExpressionType.COMPARE_GREATERTHAN) {
@@ -520,7 +519,7 @@ public abstract class SubPlanAssembler {
             }
 
             if (endingBoundExpr != null) {
-                AbstractExpression upperBoundComparator = endingBoundExpr.getFilter();
+                final AbstractExpression upperBoundComparator = endingBoundExpr.getFilter();
                 retval.use = IndexUseType.INDEX_SCAN;
                 retval.bindings.addAll(endingBoundExpr.getBindings());
 
@@ -549,7 +548,7 @@ public abstract class SubPlanAssembler {
                     // TODO: Implement an abstract isNullable() method on AbstractExpression and use
                     // that here to optimize out the "NOT NULL" comparator for NOT NULL columns
                     if (startingBoundExpr == null) {
-                        AbstractExpression newComparator = new OperatorExpression(ExpressionType.OPERATOR_NOT,
+                        final AbstractExpression newComparator = new OperatorExpression(ExpressionType.OPERATOR_NOT,
                                 new OperatorExpression(ExpressionType.OPERATOR_IS_NULL), null);
                         newComparator.getLeft().setLeft(upperBoundComparator.getLeft());
                         newComparator.finalizeValueTypes();
@@ -642,9 +641,8 @@ public abstract class SubPlanAssembler {
         }
 
         // index not relevant to expression
-        if (retval.indexExprs.size() == 0 &&
-            retval.endExprs.size() == 0 &&
-            retval.sortDirection == SortDirectionType.INVALID) {
+        if (retval.indexExprs.isEmpty() && retval.endExprs.isEmpty() &&
+                retval.sortDirection == SortDirectionType.INVALID) {
             return null;
         }
 
@@ -822,7 +820,7 @@ public abstract class SubPlanAssembler {
      * @param filterExprs filter expressions
      * @return Naive access path
      */
-    protected static AccessPath getRelevantNaivePath(
+    static AccessPath getRelevantNaivePath(
             Collection<AbstractExpression> joinExprs, Collection<AbstractExpression> filterExprs) {
         AccessPath naivePath = new AccessPath();
 
@@ -944,9 +942,9 @@ public abstract class SubPlanAssembler {
      * @param index The index we want to use to access the data.
      * @return A valid access path using the data or null if none found.
      */
-    protected AccessPath getRelevantAccessPathForIndex(
+    AccessPath getRelevantAccessPathForIndex(
             StmtTableScan tableScan, List<AbstractExpression> exprs, Index index) {
-        if (tableScan instanceof StmtTargetTableScan == false) {
+        if ( ! (tableScan instanceof StmtTargetTableScan)) {
             return null;
         }
 
@@ -980,9 +978,7 @@ public abstract class SubPlanAssembler {
                 indexedExprs = AbstractExpression.fromJSONArrayString(exprsjson, tableScan);
                 keyComponentCount = indexedExprs.size();
             } catch (JSONException e) {
-                e.printStackTrace();
-                assert(false);
-                return null;
+                throw new PlanningErrorException(e);
             }
             indexIsGeographical = isAGeoExpressionIndex(indexedExprs);
         }
@@ -1013,14 +1009,9 @@ public abstract class SubPlanAssembler {
         // In some borderline cases, the determination to use the index's order is optimistic and
         // provisional; it can be undone later in this function as new info comes to light.
         int orderSpoilers[] = new int[keyComponentCount];
-        List<AbstractExpression> bindingsForOrder = new ArrayList<>();
-        int nSpoilers = determineIndexOrdering(tableScan,
-                                               keyComponentCount,
-                                               indexedExprs,
-                                               indexedColRefs,
-                                               retval,
-                                               orderSpoilers,
-                                               bindingsForOrder);
+        final List<AbstractExpression> bindingsForOrder = new ArrayList<>();
+        final int nSpoilers = determineIndexOrdering(
+                tableScan, keyComponentCount, indexedExprs, indexedColRefs, retval, orderSpoilers, bindingsForOrder);
 
         // Use as many covering indexed expressions as possible to optimize comparator expressions that can use them.
 
@@ -1143,9 +1134,7 @@ public abstract class SubPlanAssembler {
                 retval.bindings.addAll(bindingsForOrder);
             }
             return retval;
-        }
-
-        if ( ! IndexType.isScannable(index.getType()) ) {
+        } else if ( ! IndexType.isScannable(index.getType()) ) {
             // Failure to equality-match all expressions in a non-scannable index is unacceptable.
             return null;
         }
@@ -1214,9 +1203,8 @@ public abstract class SubPlanAssembler {
             if (doubleBoundExpr != null) {
                 startingBoundExpr = doubleBoundExpr.extractStartFromPrefixLike();
                 endingBoundExpr = doubleBoundExpr.extractEndFromPrefixLike();
-            }
-            else {
-                boolean allowIndexedJoinFilters = (inListExpr == null);
+            } else {
+                final boolean allowIndexedJoinFilters = inListExpr == null;
 
                 // Look for a lower bound.
                 startingBoundExpr = getIndexableExpressionFromFilters(
@@ -1237,8 +1225,7 @@ public abstract class SubPlanAssembler {
                 retval.bindings.addAll(startingBoundExpr.getBindings());
                 if (lowerBoundExpr.getExpressionType() == ExpressionType.COMPARE_GREATERTHAN) {
                     retval.lookupType = IndexLookupType.GT;
-                }
-                else {
+                } else {
                     assert(lowerBoundExpr.getExpressionType() == ExpressionType.COMPARE_GREATERTHANOREQUALTO);
                     retval.lookupType = IndexLookupType.GTE;
                 }
@@ -1258,14 +1245,12 @@ public abstract class SubPlanAssembler {
                     if (retval.lookupType == IndexLookupType.EQ) {
                         retval.lookupType = IndexLookupType.GTE;
                     }
-                }
-                else {
+                } else {
                     // Optimizable to use reverse scan.
                     // only do reverse scan optimization when no lowerBoundExpr and lookup type is either < or <=.
                     if (upperBoundComparator.getExpressionType() == ExpressionType.COMPARE_LESSTHAN) {
                         retval.lookupType = IndexLookupType.LT;
-                    }
-                    else {
+                    } else {
                         assert upperBoundComparator.getExpressionType() == ExpressionType.COMPARE_LESSTHANOREQUALTO;
                         retval.lookupType = IndexLookupType.LTE;
                     }
@@ -1280,8 +1265,7 @@ public abstract class SubPlanAssembler {
                         newComparator.getLeft().setLeft(upperBoundComparator.getLeft());
                         newComparator.finalizeValueTypes();
                         retval.otherExprs.add(newComparator);
-                    }
-                    else {
+                    } else {
                         int lastIdx = retval.indexExprs.size() -1;
                         retval.indexExprs.remove(lastIdx);
 
@@ -1304,21 +1288,19 @@ public abstract class SubPlanAssembler {
         if (endingBoundExpr == null) {
             if (retval.sortDirection == SortDirectionType.DESC) {
                 // Optimizable to use reverse scan.
-                if (retval.endExprs.size() == 0) { // no prefix equality filters
-                    if (startingBoundExpr != null) {
-                        retval.indexExprs.clear();
-                        AbstractExpression comparator = startingBoundExpr.getFilter();
-                        retval.endExprs.add(comparator);
-                        // The initial expression is needed to control a (short?) forward scan to
-                        // adjust the start of a reverse iteration after it had to initially settle
-                        // for starting at "greater than a prefix key".
-                        retval.initialExpr.addAll(retval.indexExprs);
-                        // Look up type here does not matter in EE, because the # of active search keys is 0.
-                        // EE use m_index->moveToEnd(false) to get END, setting scan to reverse scan.
-                        // retval.lookupType = IndexLookupType.LTE;
-                    }
-                }
-                else {
+                if (retval.endExprs.isEmpty() && // no prefix equality filters
+                        startingBoundExpr != null) {
+                    retval.indexExprs.clear();
+                    AbstractExpression comparator = startingBoundExpr.getFilter();
+                    retval.endExprs.add(comparator);
+                    // The initial expression is needed to control a (short?) forward scan to
+                    // adjust the start of a reverse iteration after it had to initially settle
+                    // for starting at "greater than a prefix key".
+                    retval.initialExpr.addAll(retval.indexExprs);
+                    // Look up type here does not matter in EE, because the # of active search keys is 0.
+                    // EE use m_index->moveToEnd(false) to get END, setting scan to reverse scan.
+                    // retval.lookupType = IndexLookupType.LTE;
+                } else if (! retval.endExprs.isEmpty()) {
                     // there are prefix equality filters -- possible for a reverse scan?
 
                     // set forward scan.
@@ -1372,13 +1354,11 @@ public abstract class SubPlanAssembler {
             retval.endExprs.size() == 0 &&
             retval.sortDirection == SortDirectionType.INVALID) {
             return null;
-        }
-
-        // If all of the index key components are not covered by comparisons
-        // (but SOME are), then the scan may need to be reconfigured to account
-        // for the scan key being padded in the EE with null values for the
-        // components that are not being filtered.
-        if (retval.indexExprs.size() < keyComponentCount) {
+        } else if (retval.indexExprs.size() < keyComponentCount) {
+            // If all of the index key components are not covered by comparisons
+            // (but SOME are), then the scan may need to be reconfigured to account
+            // for the scan key being padded in the EE with null values for the
+            // components that are not being filtered.
             correctAccessPathForPrefixKeyCoverage(retval, startingBoundExpr);
         }
 
@@ -1398,12 +1378,9 @@ public abstract class SubPlanAssembler {
         // unfiltered components -- assuming that any value is considered >= null.
         if (retval.use == IndexUseType.COVERING_UNIQUE_EQUALITY) {
             correctEqualityForPrefixKey(retval);
-            return;
-        }
-
-        // GTE scans can have any number of null key components appended without changing
-        // the effective value. So, that leaves GT scans.
-        if (retval.lookupType == IndexLookupType.GT) {
+        } else if (retval.lookupType == IndexLookupType.GT) {
+            // GTE scans can have any number of null key components appended without changing
+            // the effective value. So, that leaves GT scans.
             correctForwardScanForPrefixKey(retval, startingBoundExpr);
         }
     }
@@ -1419,8 +1396,7 @@ public abstract class SubPlanAssembler {
             // adjust the start of a reverse iteration after it had to initially settle
             // for starting at "greater than a prefix key".
             retval.initialExpr.addAll(retval.indexExprs);
-        }
-        else {
+        } else {
             retval.lookupType = IndexLookupType.GTE;
         }
     }
@@ -1527,9 +1503,9 @@ public abstract class SubPlanAssembler {
         // Initially, geographical indexing only supports a single indexed column of type geography.
         if (indexedColRefs.size() != 1) {
             return false;
+        } else {
+            return indexedColRefs.get(0).getColumn().getType() == VoltType.GEOGRAPHY.getValue();
         }
-        Column geoCol = indexedColRefs.get(0).getColumn();
-        return geoCol.getType() == VoltType.GEOGRAPHY.getValue();
     }
 
     private static boolean isAGeoExpressionIndex(List<AbstractExpression> indexedExprs) {
@@ -1566,12 +1542,11 @@ public abstract class SubPlanAssembler {
             List<ColumnRef> indexedColRefs, AccessPath retval, int[] orderSpoilers,
             List<AbstractExpression> bindingsForOrder) {
         // Organize a little bit.
-        ParsedSelectStmt pss = (m_parsedStmt instanceof ParsedSelectStmt)
-                                  ? ((ParsedSelectStmt)m_parsedStmt)
-                                  : null;
-        boolean hasOrderBy = ( m_parsedStmt.hasOrderByColumns()
+        final ParsedSelectStmt pss = (m_parsedStmt instanceof ParsedSelectStmt) ?
+                ((ParsedSelectStmt)m_parsedStmt) : null;
+        final boolean hasOrderBy = ( m_parsedStmt.hasOrderByColumns()
                                   && ( ! m_parsedStmt.orderByColumns().isEmpty() ) );
-        boolean hasWindowFunctions = (pss != null && pss.hasWindowFunctionExpression());
+        final boolean hasWindowFunctions = (pss != null && pss.hasWindowFunctionExpression());
         //
         // If we have no statement level order by or window functions,
         // then we can't use this index for ordering, and we
@@ -1579,84 +1554,82 @@ public abstract class SubPlanAssembler {
         //
         if (! hasOrderBy && ! hasWindowFunctions) {
             return 0;
+        } else {
+            //
+            // We make a definition.  Let S1 and S2 be sequences of expressions,
+            // and OS be an increasing sequence of indices into S2.  Let erase(S2, OS) be
+            // the sequence of expressions which results from erasing all S2
+            // expressions whose indices are in OS.  We say *S1 is a prefix of
+            // S2 with OS-singular values* if S1 is a prefix of erase(S2, OS).
+            // That is to say, if we erase the expressions in S2 whose indices are
+            // in OS, S1 is a prefix of the result.
+            //
+            // What expressions must we match?
+            //   1.) We have the parameters indexedExpressions and indexedColRefs.
+            //       These are the expressions or column references in an index.
+            //       Exactly one of them is non-null.  Since these are both an
+            //       indexed sequence of expression-like things, denote the
+            //       non-null one IS.
+            // What expressions do we care about?  We have two kinds.
+            //   1.) The expressions from the statement level order by clause, OO.
+            //       This sequence of expressions must be a prefix of IS with OS
+            //       singular values for some sequence OS.  The sequence OS will be
+            //       called the order spoilers.  Later on we will test that the
+            //       index expressions at the positions in OS can have only a
+            //       single value.
+            //   2.) The expressions in a window function's partition by list, WP,
+            //       followed by the expressions in the window function's
+            //       order by list, WO.  The partition by functions are a set not
+            //       a sequence.  We need to find a sequence of expressions, S,
+            //       such that S is a permutation of P and S+WO is a singular prefix
+            //       of IS.
+            //
+            // So, in both cases, statement level order by and window function, we are looking for
+            // a sequence of expressions, S1, and a list of IS indices, OS, such
+            // that S1 is a prefix of IS with OS-singular values.
+            //
+            // If the statement level order by expression list is not a prefix of
+            // the index, we still care to know about window functions.  The reverse
+            // is not true.  If there are window functions but they all fail to match the index,
+            // we must give up on this index, even if the statement level order
+            // by list is still matching.  This is because the window functions will
+            // require sorting before the statement level order by clause's
+            // sort, and this window function sort will invalidate the statement level
+            // order by sort.
+            //
+            // Note also that it's possible that the statement level order by and
+            // the window function order by are compatible.  So this index may provide
+            // all the sorting needed.
+            //
+            // There need to be enough indexed expressions to provide full sort coverage.
+            // More indexed expressions are ok.
+            //
+            // We keep a scoreboard which keeps track of everything.  All the window
+            // functions and statement level order by functions are kept in the scoreboard.
+            //
+            final WindowFunctionScoreboard windowFunctionScores = new WindowFunctionScoreboard(m_parsedStmt, tableScan);
+            // indexCtr is an index into the index expressions or columns.
+            for (int indexCtr = 0; !windowFunctionScores.isDone() && indexCtr < keyComponentCount; indexCtr += 1) {
+                // Figure out what to do with index expression or column at indexCtr.
+                // First, fetch it out.
+                final AbstractExpression indexExpr = (indexedExprs == null) ? null : indexedExprs.get(indexCtr);
+                final ColumnRef indexColRef = (indexedColRefs == null) ? null : indexedColRefs.get(indexCtr);
+                // Then see if it matches something.  If
+                // this doesn't match one thing it may match
+                // another.  If it doesn't match anything, it may
+                // be an order spoiler, which we will maintain in
+                // the scoreboard.
+                windowFunctionScores.matchIndexEntry(new ExpressionOrColumn(
+                        indexCtr, tableScan, indexExpr, SortDirectionType.INVALID, indexColRef));
+            }
+            //
+            // The result is the number of order spoilers, but
+            // also the access path we have chosen, the order
+            // spoilers themselves and the bindings.  Return these
+            // by reference.
+            //
+            return windowFunctionScores.getResult(retval, orderSpoilers, bindingsForOrder);
         }
-        //
-        // We make a definition.  Let S1 and S2 be sequences of expressions,
-        // and OS be an increasing sequence of indices into S2.  Let erase(S2, OS) be
-        // the sequence of expressions which results from erasing all S2
-        // expressions whose indices are in OS.  We say *S1 is a prefix of
-        // S2 with OS-singular values* if S1 is a prefix of erase(S2, OS).
-        // That is to say, if we erase the expressions in S2 whose indices are
-        // in OS, S1 is a prefix of the result.
-        //
-        // What expressions must we match?
-        //   1.) We have the parameters indexedExpressions and indexedColRefs.
-        //       These are the expressions or column references in an index.
-        //       Exactly one of them is non-null.  Since these are both an
-        //       indexed sequence of expression-like things, denote the
-        //       non-null one IS.
-        // What expressions do we care about?  We have two kinds.
-        //   1.) The expressions from the statement level order by clause, OO.
-        //       This sequence of expressions must be a prefix of IS with OS
-        //       singular values for some sequence OS.  The sequence OS will be
-        //       called the order spoilers.  Later on we will test that the
-        //       index expressions at the positions in OS can have only a
-        //       single value.
-        //   2.) The expressions in a window function's partition by list, WP,
-        //       followed by the expressions in the window function's
-        //       order by list, WO.  The partition by functions are a set not
-        //       a sequence.  We need to find a sequence of expressions, S,
-        //       such that S is a permutation of P and S+WO is a singular prefix
-        //       of IS.
-        //
-        // So, in both cases, statement level order by and window function, we are looking for
-        // a sequence of expressions, S1, and a list of IS indices, OS, such
-        // that S1 is a prefix of IS with OS-singular values.
-        //
-        // If the statement level order by expression list is not a prefix of
-        // the index, we still care to know about window functions.  The reverse
-        // is not true.  If there are window functions but they all fail to match the index,
-        // we must give up on this index, even if the statement level order
-        // by list is still matching.  This is because the window functions will
-        // require sorting before the statement level order by clause's
-        // sort, and this window function sort will invalidate the statement level
-        // order by sort.
-        //
-        // Note also that it's possible that the statement level order by and
-        // the window function order by are compatible.  So this index may provide
-        // all the sorting needed.
-        //
-        // There need to be enough indexed expressions to provide full sort coverage.
-        // More indexed expressions are ok.
-        //
-        // We keep a scoreboard which keeps track of everything.  All the window
-        // functions and statement level order by functions are kept in the scoreboard.
-        //
-        WindowFunctionScoreboard windowFunctionScores = new WindowFunctionScoreboard(m_parsedStmt, tableScan);
-        // indexCtr is an index into the index expressions or columns.
-        for (int indexCtr = 0; !windowFunctionScores.isDone() && indexCtr < keyComponentCount; indexCtr += 1) {
-            // Figure out what to do with index expression or column at indexCtr.
-            // First, fetch it out.
-            AbstractExpression indexExpr = (indexedExprs == null) ? null : indexedExprs.get(indexCtr);
-            ColumnRef indexColRef = (indexedColRefs == null) ? null : indexedColRefs.get(indexCtr);
-            // Then see if it matches something.  If
-            // this doesn't match one thing it may match
-            // another.  If it doesn't match anything, it may
-            // be an order spoiler, which we will maintain in
-            // the scoreboard.
-            windowFunctionScores.matchIndexEntry(new ExpressionOrColumn(indexCtr,
-                                                                        tableScan,
-                                                                        indexExpr,
-                                                                        SortDirectionType.INVALID,
-                                                                        indexColRef));
-        }
-        //
-        // The result is the number of order spoilers, but
-        // also the access path we have chosen, the order
-        // spoilers themselves and the bindings.  Return these
-        // by reference.
-        //
-        return windowFunctionScores.getResult(retval, orderSpoilers, bindingsForOrder);
     }
 
     /**
@@ -1676,43 +1649,42 @@ public abstract class SubPlanAssembler {
         // Filters leveraged for an optimization, such as the skipping of an ORDER BY plan node
         // always risk adding a dependency on a particular parameterization, so be prepared to
         // add prerequisite parameter bindings to the plan.
-        List<AbstractExpression> otherBindingsForOrder = new ArrayList<>();
+        final List<AbstractExpression> otherBindingsForOrder = new ArrayList<>();
         // Order spoilers must be recovered in the order they were found
         // for the index ordering to be considered acceptable.
         // Each spoiler key component is recovered by the detection of an equality filter on it.
-        for (; nRecoveredSpoilers < nSpoilers; ++nRecoveredSpoilers) {
+        for (int index = nRecoveredSpoilers; index < nSpoilers; ++index) {
             // There may be more equality filters that weren't useful for "coverage"
             // but may still serve to recover an otherwise order-spoiling index key component.
             // The filter will only be applied as a post-condition,
             // but that's good enough to satisfy the ORDER BY.
-            AbstractExpression coveringExpr = null;
+            final AbstractExpression coveringExpr;
             int coveringColId = -1;
             // This is a scaled down version of the coverage check in getRelevantAccessPathForIndex.
             // This version leaves intact any filter it finds,
             // so it will be picked up as a post-filter.
             if (indexedExprs == null) {
-                coveringColId = colIds[orderSpoilers[nRecoveredSpoilers]];
+                coveringColId = colIds[orderSpoilers[index]];
+                coveringExpr = null;
             } else {
-                coveringExpr = indexedExprs.get(orderSpoilers[nRecoveredSpoilers]);
+                coveringExpr = indexedExprs.get(orderSpoilers[index]);
             }
-            // A key component filter based on another table's column is enough to maintain ordering
-            // if this index is chosen, regardless of whether an NLIJ is injected for an IN LIST.
-            boolean alwaysAllowConstrainingJoinFilters = true;
-
-            List<AbstractExpression> moreBindings = null;
             IndexableExpression eqExpr = getIndexableExpressionFromFilters(
                 ExpressionType.COMPARE_EQUAL, ExpressionType.COMPARE_EQUAL,
                 coveringExpr, coveringColId, tableScan, filtersToCover,
-                alwaysAllowConstrainingJoinFilters, KEEP_IN_POST_FILTERS);
+                    // A key component filter based on another table's column is enough to maintain ordering
+                    // if this index is chosen, regardless of whether an NLIJ is injected for an IN LIST.
+                true /*alwaysAllowConstrainingJoinFilters*/, KEEP_IN_POST_FILTERS);
             if (eqExpr == null) {
                 return null;
+            } else {
+                // The equality filter confirms that the "spoiler" index key component
+                // (one missing from the ORDER BY) is constant-valued,
+                // so it can't spoil the scan result sort order established by other key components.
+
+                // Accumulate bindings (parameter constraints) across all recovered spoilers.
+                otherBindingsForOrder.addAll(eqExpr.getBindings());
             }
-            // The equality filter confirms that the "spoiler" index key component
-            // (one missing from the ORDER BY) is constant-valued,
-            // so it can't spoil the scan result sort order established by other key components.
-            moreBindings = eqExpr.getBindings();
-            // Accumulate bindings (parameter constraints) across all recovered spoilers.
-            otherBindingsForOrder.addAll(moreBindings);
         }
         return otherBindingsForOrder;
     }
@@ -1753,8 +1725,8 @@ public abstract class SubPlanAssembler {
         AbstractExpression coveringExpr, int coveringColId, StmtTableScan tableScan,
         List<AbstractExpression> filtersToCover, boolean allowIndexedJoinFilters, boolean filterAction) {
         List<AbstractExpression> binding = null;
-        AbstractExpression indexableExpr = null;
-        AbstractExpression otherExpr = null;
+        AbstractExpression indexableExpr;
+        AbstractExpression otherExpr;
         ComparisonExpression normalizedExpr = null;
         AbstractExpression originalFilter = null;
         for (AbstractExpression filter : filtersToCover) {
@@ -1768,94 +1740,92 @@ public abstract class SubPlanAssembler {
 
             // Expression type must be resolvable by an index scan
             if ((filter.getExpressionType() == targetComparator) ||
-                (filter.getExpressionType() == altTargetComparator)) {
+                    (filter.getExpressionType() == altTargetComparator)) {
                 normalizedExpr = (ComparisonExpression) filter;
                 indexableExpr = filter.getLeft();
                 otherExpr = filter.getRight();
-                binding = bindingIfValidIndexedFilterOperand(tableScan, indexableExpr, otherExpr,
-                                                             coveringExpr, coveringColId);
+                binding = bindingIfValidIndexedFilterOperand(
+                        tableScan, indexableExpr, otherExpr, coveringExpr, coveringColId);
                 if (binding != null) {
-                    if ( ! allowIndexedJoinFilters) {
-                        if (otherExpr.hasTupleValueSubexpression()) {
-                            // This filter can not be used with the index, possibly due to interactions
-                            // wih IN LIST processing that would require a three-way NLIJ.
-                            binding = null;
-                            continue;
-                        }
-                    }
-                    // Additional restrictions apply to LIKE pattern arguments
-                    if (targetComparator == ExpressionType.COMPARE_LIKE) {
-                        if (otherExpr instanceof ParameterValueExpression) {
-                            ParameterValueExpression pve = (ParameterValueExpression)otherExpr;
-                            // Can't use an index for parameterized LIKE filters,
-                            // e.g. "T1.column LIKE ?"
-                            // UNLESS the parameter was artificially substituted
-                            // for a user-specified constant AND that constant was a prefix pattern.
-                            // In that case, the parameter has to be added to the bound list
-                            // for this index/statement.
-                            ConstantValueExpression cve = pve.getOriginalValue();
-                            if (cve == null || ! cve.isPrefixPatternString()) {
-                                binding = null; // the filter is not usable, so the binding is invalid
-                                continue;
-                            }
-                            // Remember that the binding list returned by
-                            // bindingIfValidIndexedFilterOperand above
-                            // is often a "shared object" and is intended to be treated as immutable.
-                            // To add a parameter to it, first copy the List.
-                            List<AbstractExpression> moreBinding =
-                                new ArrayList<>(binding);
-                            moreBinding.add(pve);
-                            binding = moreBinding;
-                        } else if (otherExpr instanceof ConstantValueExpression) {
-                            // Can't use an index for non-prefix LIKE filters,
-                            // e.g. " T1.column LIKE '%ish' "
-                            ConstantValueExpression cve = (ConstantValueExpression)otherExpr;
-                            if ( ! cve.isPrefixPatternString()) {
-                                // The constant is not an index-friendly prefix pattern.
-                                binding = null; // the filter is not usable, so the binding is invalid
-                                continue;
-                            }
-                        } else {
-                            // Other cases are not indexable, e.g. " T1.column LIKE T2.column "
-                            binding = null; // the filter is not usable, so the binding is invalid
-                            continue;
-                        }
-                    }
-                    if (targetComparator == ExpressionType.COMPARE_IN) {
-                        if (otherExpr.hasTupleValueSubexpression()) {
-                            // This is a fancy edge case where the expression could only be indexed
-                            // if it:
-                            // A) does not reference the indexed table and
-                            // B) has ee support for a three-way NLIJ where the table referenced in
-                            // the list element expression feeds values from its current row to the
-                            // Materialized scan which then re-evaluates its expressions to
-                            // re-populate the temp table that drives the injected NLIJ with
-                            // this index scan.
-                            // This is a slightly more twisted variant of the three-way NLIJ that
-                            // would be needed to support compound key indexing on a combination
-                            // of (fixed) IN LIST elements and join key values from other tables.
-                            // Punt for now on indexing this IN LIST filter.
-                            binding = null; // the filter is not usable, so the binding is invalid
-                            continue;
-                        }
-                        if (otherExpr instanceof ParameterValueExpression) {
-                            // It's OK to use an index for a parameterized IN filter,
-                            // e.g. "T1.column IN ?"
-                            // EVEN if the parameter was -- someday -- artificially substituted
-                            // for an entire user-specified list of constants.
-                            // As of now, that is beyond the capabilities of the ad hoc statement
-                            // parameterizer, so "T1.column IN (3, 4)" can use the plan for
-                            // "T1.column IN (?, ?)" that might have been originally cached for
-                            // "T1.column IN (1, 2)" but "T1.column IN (1, 2, 3)" would need its own
-                            // "T1.column IN (?, ?, ?)" plan, etc. per list element count.
-                        }
-                        //TODO: Some day, there may be an optimization here that allows an entire
-                        // IN LIST of constants to be serialized as a single value instead of a
-                        // VectorValue composed of ConstantValue arguments.
-                        // What's TBD is whether that would get its own AbstractExpression class or
-                        // just be a special case of ConstantValueExpression.
-                        else {
-                            assert (otherExpr instanceof VectorValueExpression);
+                    if (! allowIndexedJoinFilters && otherExpr.hasTupleValueSubexpression()) {
+                        // This filter can not be used with the index, possibly due to interactions
+                        // wih IN LIST processing that would require a three-way NLIJ.
+                        binding = null;
+                        continue;
+                    } else {
+                        switch (targetComparator) {
+                            case COMPARE_LIKE:
+                                // Additional restrictions apply to LIKE pattern arguments
+                                if (otherExpr instanceof ParameterValueExpression) {
+                                    final ParameterValueExpression pve = (ParameterValueExpression) otherExpr;
+                                    // Can't use an index for parameterized LIKE filters,
+                                    // e.g. "T1.column LIKE ?"
+                                    // UNLESS the parameter was artificially substituted
+                                    // for a user-specified constant AND that constant was a prefix pattern.
+                                    // In that case, the parameter has to be added to the bound list
+                                    // for this index/statement.
+                                    final ConstantValueExpression cve = pve.getOriginalValue();
+                                    if (cve == null || ! cve.isPrefixPatternString()) {
+                                        binding = null; // the filter is not usable, so the binding is invalid
+                                        continue;
+                                    }
+                                    // Remember that the binding list returned by
+                                    // bindingIfValidIndexedFilterOperand above
+                                    // is often a "shared object" and is intended to be treated as immutable.
+                                    // To add a parameter to it, first copy the List.
+                                    List<AbstractExpression> moreBinding = new ArrayList<>(binding);
+                                    moreBinding.add(pve);
+                                    binding = moreBinding;
+                                } else if (otherExpr instanceof ConstantValueExpression) {
+                                    // Can't use an index for non-prefix LIKE filters,
+                                    // e.g. " T1.column LIKE '%ish' "
+                                    ConstantValueExpression cve = (ConstantValueExpression)otherExpr;
+                                    if ( ! cve.isPrefixPatternString()) {
+                                        // The constant is not an index-friendly prefix pattern.
+                                        binding = null; // the filter is not usable, so the binding is invalid
+                                        continue;
+                                    }
+                                } else {
+                                    // Other cases are not indexable, e.g. " T1.column LIKE T2.column "
+                                    binding = null; // the filter is not usable, so the binding is invalid
+                                    continue;
+                                }
+                                break;
+                            case COMPARE_IN:
+                                if (otherExpr.hasTupleValueSubexpression()) {
+                                    // This is a fancy edge case where the expression could only be indexed
+                                    // if it:
+                                    // A) does not reference the indexed table and
+                                    // B) has ee support for a three-way NLIJ where the table referenced in
+                                    // the list element expression feeds values from its current row to the
+                                    // Materialized scan which then re-evaluates its expressions to
+                                    // re-populate the temp table that drives the injected NLIJ with
+                                    // this index scan.
+                                    // This is a slightly more twisted variant of the three-way NLIJ that
+                                    // would be needed to support compound key indexing on a combination
+                                    // of (fixed) IN LIST elements and join key values from other tables.
+                                    // Punt for now on indexing this IN LIST filter.
+                                    binding = null; // the filter is not usable, so the binding is invalid
+                                    continue;
+                                } else if (otherExpr instanceof ParameterValueExpression) {
+                                    // It's OK to use an index for a parameterized IN filter,
+                                    // e.g. "T1.column IN ?"
+                                    // EVEN if the parameter was -- someday -- artificially substituted
+                                    // for an entire user-specified list of constants.
+                                    // As of now, that is beyond the capabilities of the ad hoc statement
+                                    // parameterizer, so "T1.column IN (3, 4)" can use the plan for
+                                    // "T1.column IN (?, ?)" that might have been originally cached for
+                                    // "T1.column IN (1, 2)" but "T1.column IN (1, 2, 3)" would need its own
+                                    // "T1.column IN (?, ?, ?)" plan, etc. per list element count.
+                                } else {
+                                    //TODO: Some day, there may be an optimization here that allows an entire
+                                    // IN LIST of constants to be serialized as a single value instead of a
+                                    // VectorValue composed of ConstantValue arguments.
+                                    // What's TBD is whether that would get its own AbstractExpression class or
+                                    // just be a special case of ConstantValueExpression.
+                                    assert (otherExpr instanceof VectorValueExpression);
+                                }
+                            default:
                         }
                     }
                     originalFilter = filter;
@@ -1871,32 +1841,30 @@ public abstract class SubPlanAssembler {
                 normalizedExpr = normalizedExpr.reverseOperator();
                 indexableExpr = filter.getRight();
                 otherExpr = filter.getLeft();
-                binding = bindingIfValidIndexedFilterOperand(tableScan, indexableExpr, otherExpr,
-                                                             coveringExpr, coveringColId);
+                binding = bindingIfValidIndexedFilterOperand(
+                        tableScan, indexableExpr, otherExpr, coveringExpr, coveringColId);
                 if (binding != null) {
-                    if ( ! allowIndexedJoinFilters) {
-                        if (otherExpr.hasTupleValueSubexpression()) {
-                            // This filter can not be used with the index, probably due to interactions
-                            // with IN LIST processing of another key component that would require a
-                            // three-way NLIJ to be injected.
-                            binding = null;
-                            continue;
+                    if ( ! allowIndexedJoinFilters && otherExpr.hasTupleValueSubexpression()) {
+                        // This filter can not be used with the index, probably due to interactions
+                        // with IN LIST processing of another key component that would require a
+                        // three-way NLIJ to be injected.
+                        binding = null;
+                    } else {
+                        originalFilter = filter;
+                        if (filterAction == EXCLUDE_FROM_POST_FILTERS) {
+                            filtersToCover.remove(filter);
                         }
+                        break;
                     }
-                    originalFilter = filter;
-                    if (filterAction == EXCLUDE_FROM_POST_FILTERS) {
-                        filtersToCover.remove(filter);
-                    }
-                    break;
                 }
             }
         }
-
         if (binding == null) {
             // ran out of candidate filters.
             return null;
+        } else {
+            return new IndexableExpression(originalFilter, normalizedExpr, binding);
         }
-        return new IndexableExpression(originalFilter, normalizedExpr, binding);
     }
 
     /**
@@ -1908,18 +1876,14 @@ public abstract class SubPlanAssembler {
      */
     private static boolean removeExactMatchCoveredExpressions(
             AbstractExpression coveringExpr, List<AbstractExpression> exprsToCover) {
-
-        boolean hasMatch = false;
-        Iterator<AbstractExpression> iter = exprsToCover.iterator();
-        while(iter.hasNext()) {
-            AbstractExpression exprToCover = iter.next();
-            if (coveringExpr.bindingToIndexedExpression(exprToCover) != null) {
-                iter.remove();
-                hasMatch = true;
-                // need to keep going to remove all matches
+        boolean matched = false;
+        for (int index = exprsToCover.size() - 1; index >= 0; --index) {
+            if (coveringExpr.bindingToIndexedExpression(exprsToCover.get(index)) != null) {
+                exprsToCover.remove(index);
+                matched = true;
             }
         }
-        return hasMatch;
+        return matched;
     }
 
     /**
@@ -1942,75 +1906,66 @@ public abstract class SubPlanAssembler {
         }
         // For each NOT NULL expression to cover extract the TVE expressions. If all of them are also part
         // of the covering NULL-rejecting collection then this NOT NULL expression is covered
-        Iterator<AbstractExpression> iter = exprsToCover.iterator();
-        while (iter.hasNext()) {
-            AbstractExpression filter = iter.next();
-            if (ExpressionType.OPERATOR_NOT == filter.getExpressionType()) {
-                assert(filter.getLeft() != null);
-                if (ExpressionType.OPERATOR_IS_NULL == filter.getLeft().getExpressionType()) {
-                    assert(filter.getLeft().getLeft() != null);
-                    List<TupleValueExpression> tves = ExpressionUtil.getTupleValueExpressions(filter.getLeft().getLeft());
-                    if (coveringTves.containsAll(tves)) {
-                        iter.remove();
-                    }
-                }
+        for (int index = exprsToCover.size() - 1; index >= 0; --index) {
+            final AbstractExpression filter = exprsToCover.get(index);
+            assert filter.getExpressionType() != ExpressionType.OPERATOR_NOT ||
+                    (filter.getLeft() != null &&
+                            (filter.getLeft().getExpressionType() != ExpressionType.OPERATOR_IS_NULL ||
+                            filter.getLeft().getLeft() != null));
+            if (filter.getExpressionType() == ExpressionType.OPERATOR_NOT &&
+                    filter.getLeft().getExpressionType() == ExpressionType.OPERATOR_IS_NULL &&
+                    coveringTves.containsAll(ExpressionUtil.getTupleValueExpressions(filter.getLeft().getLeft()))) {
+                exprsToCover.remove(index);
             }
         }
         return exprsToCover;
     }
 
     private static boolean isOperandDependentOnTable(AbstractExpression expr, StmtTableScan tableScan) {
-        for (TupleValueExpression tve : ExpressionUtil.getTupleValueExpressions(expr)) {
-            if (tableScan.getTableAlias().equals(tve.getTableAlias())) {
-                return true;
-            }
-        }
-        return false;
+        return ExpressionUtil.getTupleValueExpressions(expr).stream()
+                .anyMatch(tve -> tableScan.getTableAlias().equals(tve.getTableAlias()));
     }
 
     private static List<AbstractExpression> bindingIfValidIndexedFilterOperand(
             StmtTableScan tableScan, AbstractExpression indexableExpr, AbstractExpression otherExpr,
             AbstractExpression coveringExpr, int coveringColId) {
         // Do some preliminary disqualifications.
-
-        VoltType keyType = indexableExpr.getValueType();
-        VoltType otherType = otherExpr.getValueType();
+        final VoltType keyType = indexableExpr.getValueType();
+        final VoltType otherType = otherExpr.getValueType();
         // EE index key comparator should not lose precision when casting keys to the indexed type.
         // Do not choose an index that requires such a cast.
-        if ( ! keyType.canExactlyRepresentAnyValueOf(otherType)) {
-            // Except the EE DOES contain the necessary logic to avoid loss of SCALE
-            // when the indexed type is just a narrower integer type.
-            // This is very important, since the typing for integer constants
-            // MAY not pay that much attention to minimizing scale.
-            // This was behind issue ENG-4606 -- failure to index on constant equality.
-            // So, accept any pair of integer types.
-            if ( ! (keyType.isBackendIntegerType() && otherType.isBackendIntegerType()))  {
-                return null;
-            }
-        }
-        // Left and right operands must not be from the same table,
-        // e.g. where t.a = t.b is not indexable with the current technology.
-        if (isOperandDependentOnTable(otherExpr, tableScan)) {
+        // Except the EE DOES contain the necessary logic to avoid loss of SCALE
+        // when the indexed type is just a narrower integer type.
+        // This is very important, since the typing for integer constants
+        // MAY not pay that much attention to minimizing scale.
+        // This was behind issue ENG-4606 -- failure to index on constant equality.
+        // So, accept any pair of integer types.
+        if ( ! keyType.canExactlyRepresentAnyValueOf(otherType) &&
+                ! (keyType.isBackendIntegerType() && otherType.isBackendIntegerType()))  {
             return null;
-        }
-
-        if (coveringExpr == null) {
+        } else if (isOperandDependentOnTable(otherExpr, tableScan)) {
+            // Left and right operands must not be from the same table,
+            // e.g. where t.a = t.b is not indexable with the current technology.
+            return null;
+        } else if (coveringExpr == null) {
             // Match only the table's column that has the coveringColId
             if ((indexableExpr.getExpressionType() != ExpressionType.VALUE_TUPLE)) {
                 return null;
+            } else {
+                TupleValueExpression tve = (TupleValueExpression) indexableExpr;
+                // Handle a simple indexed column identified by its column id.
+                if ((coveringColId == tve.getColumnIndex()) &&
+                        (tableScan.getTableAlias().equals(tve.getTableAlias()))) {
+                    // A column match never requires parameter binding. Return an empty list.
+                    return ExpressionOrColumn.s_reusableImmutableEmptyBinding;
+                } else {
+                    return null;
+                }
             }
-            TupleValueExpression tve = (TupleValueExpression) indexableExpr;
-            // Handle a simple indexed column identified by its column id.
-            if ((coveringColId == tve.getColumnIndex()) &&
-                (tableScan.getTableAlias().equals(tve.getTableAlias()))) {
-                // A column match never requires parameter binding. Return an empty list.
-                return ExpressionOrColumn.s_reusableImmutableEmptyBinding;
-            }
-            return null;
+        } else {
+            // Do a possibly more extensive match with coveringExpr which MAY require bound parameters.
+            return indexableExpr.bindingToIndexedExpression(coveringExpr);
         }
-        // Do a possibly more extensive match with coveringExpr which MAY require bound parameters.
-        List<AbstractExpression> binding = indexableExpr.bindingToIndexedExpression(coveringExpr);
-        return binding;
     }
 
 
@@ -2019,7 +1974,7 @@ public abstract class SubPlanAssembler {
      * @param scanNode that needs to be distributed
      * @return return the newly created receive node (which is linked to the new sends)
      */
-    protected static AbstractPlanNode addSendReceivePair(AbstractPlanNode scanNode) {
+    static AbstractPlanNode addSendReceivePair(AbstractPlanNode scanNode) {
         SendPlanNode sendNode = new SendPlanNode();
         sendNode.addAndLinkChild(scanNode);
 
@@ -2036,17 +1991,18 @@ public abstract class SubPlanAssembler {
      * @param table The table to get data from.
      * @return The root of a plan graph to get the data.
      */
-    protected static AbstractPlanNode getAccessPlanForTable(JoinNode tableNode) {
-        StmtTableScan tableScan = tableNode.getTableScan();
+    static AbstractPlanNode getAccessPlanForTable(JoinNode tableNode) {
+        final StmtTableScan tableScan = tableNode.getTableScan();
         // Access path to access the data in the table (index/scan/etc).
-        AccessPath path = tableNode.m_currentAccessPath;
+        final AccessPath path = tableNode.m_currentAccessPath;
         assert(path != null);
 
         // if no index, it is a sequential scan
         if (path.index == null) {
             return getScanAccessPlanForTable(tableScan, path);
+        } else {
+            return getIndexAccessPlanForTable(tableScan, path);
         }
-        return getIndexAccessPlanForTable(tableScan, path);
     }
 
     /**
@@ -2073,11 +2029,9 @@ public abstract class SubPlanAssembler {
      * @return An index scan plan node OR,
                in one edge case, an NLIJ of a MaterializedScan and an index scan plan node.
      */
-    private static AbstractPlanNode getIndexAccessPlanForTable(
-            StmtTableScan tableScan, AccessPath path) {
+    private static AbstractPlanNode getIndexAccessPlanForTable(StmtTableScan tableScan, AccessPath path) {
         // now assume this will be an index scan and get the relevant index
-        Index index = path.index;
-        IndexScanPlanNode scanNode = new IndexScanPlanNode(tableScan, index);
+        final IndexScanPlanNode scanNode = new IndexScanPlanNode(tableScan, path.index);
         AbstractPlanNode resultNode = scanNode;
         // set sortDirection here because it might be used for IN list
         scanNode.setSortDirection(path.sortDirection);
@@ -2131,13 +2085,11 @@ public abstract class SubPlanAssembler {
         scanNode.setInitialExpression(ExpressionUtil.combinePredicates(path.initialExpr));
         scanNode.setSkipNullPredicate();
         scanNode.setEliminatedPostFilters(path.eliminatedPostExprs);
-        if (scanNode instanceof IndexSortablePlanNode) {
-            IndexUseForOrderBy indexUse = ((IndexSortablePlanNode)scanNode).indexUse();
-            indexUse.setWindowFunctionUsesIndex(path.m_windowFunctionUsesIndex);
-            indexUse.setSortOrderFromIndexScan(path.sortDirection);
-            indexUse.setWindowFunctionIsCompatibleWithOrderBy(path.m_stmtOrderByIsCompatible);
-            indexUse.setFinalExpressionOrderFromIndexScan(path.m_finalExpressionOrder);
-        }
+        final IndexUseForOrderBy indexUse = ((IndexSortablePlanNode)scanNode).indexUse();
+        indexUse.setWindowFunctionUsesIndex(path.m_windowFunctionUsesIndex);
+        indexUse.setSortOrderFromIndexScan(path.sortDirection);
+        indexUse.setWindowFunctionIsCompatibleWithOrderBy(path.m_stmtOrderByIsCompatible);
+        indexUse.setFinalExpressionOrderFromIndexScan(path.m_finalExpressionOrder);
         return resultNode;
     }
 
@@ -2145,12 +2097,12 @@ public abstract class SubPlanAssembler {
     // Generate a plan for an IN-LIST-driven index scan
     private static AbstractPlanNode injectIndexedJoinWithMaterializedScan(
             AbstractExpression listElements, IndexScanPlanNode scanNode) {
-        MaterializedScanPlanNode matScan = new MaterializedScanPlanNode();
+        final MaterializedScanPlanNode matScan = new MaterializedScanPlanNode();
         assert(listElements instanceof VectorValueExpression || listElements instanceof ParameterValueExpression);
         matScan.setRowData(listElements);
         matScan.setSortDirection(scanNode.getSortDirection());
 
-        NestLoopIndexPlanNode nlijNode = new NestLoopIndexPlanNode();
+        final NestLoopIndexPlanNode nlijNode = new NestLoopIndexPlanNode();
         nlijNode.setJoinType(JoinType.INNER);
         nlijNode.addInlinePlanNode(scanNode);
         nlijNode.addAndLinkChild(matScan);
@@ -2165,11 +2117,9 @@ public abstract class SubPlanAssembler {
     private static void replaceInListFilterWithEqualityFilter(
             List<AbstractExpression> endExprs, AbstractExpression inListRhs, AbstractExpression equalityRhs) {
         for (AbstractExpression comparator : endExprs) {
-            AbstractExpression otherExpr = comparator.getRight();
-            if (otherExpr == inListRhs) {
+            if (comparator.getRight() == inListRhs) {
                 endExprs.remove(comparator);
-                endExprs.add(new ComparisonExpression(
-                        ExpressionType.COMPARE_EQUAL, comparator.getLeft(), equalityRhs));
+                endExprs.add(new ComparisonExpression(ExpressionType.COMPARE_EQUAL, comparator.getLeft(), equalityRhs));
                 break;
             }
         }
