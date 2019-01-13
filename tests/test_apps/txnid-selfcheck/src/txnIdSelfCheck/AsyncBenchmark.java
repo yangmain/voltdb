@@ -238,7 +238,7 @@ public class AsyncBenchmark {
     void connect() throws InterruptedException {
         log.info("Connecting to VoltDB...");
 
-        final CountDownLatch connections = new CountDownLatch(config.parsedServers.length);
+        final CountDownLatch connections = new CountDownLatch(1);
 
         // use a new thread to connect to each server
         for (final String server : config.parsedServers) {
@@ -251,7 +251,7 @@ public class AsyncBenchmark {
                 }
             }).start();
         }
-        // block until all have connected
+        // block until at least one has connected
         connections.await();
     }
 
