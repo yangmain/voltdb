@@ -23,7 +23,7 @@ public abstract class DtxnConstants {
     public static final long DUMP_REQUEST_TXNID = -101;
 
     /** Dtxn requires 1 dependency response per partition */
-    public static final int MULTIPARTITION_DEPENDENCY = 0x40000000;
+    public static final int MULTIPARTITION_DEPENDENCY = 0x00000000;
 
     public static final long DUMMY_LAST_SEEN_TXN_ID = -1;
 
