@@ -95,6 +95,7 @@ public class PersistentBinaryDeque implements BinaryDeque {
 
         @Override
         public BBContainer poll(OutputContainerFactory ocf) throws IOException {
+            PBDSegmentReader segmentReader;
             synchronized (PersistentBinaryDeque.this) {
                 if (m_closed) {
                     throw new IOException("PBD.ReadCursor.poll(): " + m_cursorId + " - Reader has been closed");
@@ -102,7 +103,7 @@ public class PersistentBinaryDeque implements BinaryDeque {
                 assertions();
 
                 moveToValidSegment();
-                PBDSegmentReader segmentReader = m_segment.getReader(m_cursorId);
+                segmentReader = m_segment.getReader(m_cursorId);
                 if (segmentReader == null) {
                     segmentReader = m_segment.openForRead(m_cursorId);
                 }
@@ -118,8 +119,12 @@ public class PersistentBinaryDeque implements BinaryDeque {
                     segmentReader = m_segment.getReader(m_cursorId);
                     if (segmentReader == null) segmentReader = m_segment.openForRead(m_cursorId);
                 }
-                BBContainer retcont = segmentReader.poll(ocf);
+            }
 
+            // HACK - do the actual polling unlocked
+            BBContainer retcont = segmentReader.poll(ocf);
+
+            synchronized (PersistentBinaryDeque.this) {
                 m_numRead++;
                 assertions();
                 assert (retcont.b() != null);
@@ -539,23 +544,34 @@ public class PersistentBinaryDeque implements BinaryDeque {
     }
 
     @Override
-    public synchronized void offer(BBContainer object, boolean allowCompression) throws IOException {
-        assertions();
-        if (m_closed) {
-            throw new IOException("Closed");
+    public void offer(BBContainer object, boolean allowCompression) throws IOException {
+        final boolean compress = object.b().isDirect() && allowCompression;
+        PBDSegment tail;
+        synchronized(this) {
+            assertions();
+            if (m_closed) {
+                throw new IOException("Closed");
+            }
+
+            tail = peekLastSegment();
         }
 
-        PBDSegment tail = peekLastSegment();
-        final boolean compress = object.b().isDirect() && allowCompression;
+        // HOKEY HACK - offer unlocked
+        // Normally only 1 writer thread does this
         if (!tail.offer(object, compress)) {
-            tail = addSegment(tail);
+            synchronized(this) {
+                tail = addSegment(tail);
+            }
             final boolean success = tail.offer(object, compress);
             if (!success) {
                 throw new IOException("Failed to offer object in PBD");
             }
         }
-        m_numObjects++;
-        assertions();
+
+        synchronized(this) {
+            m_numObjects++;
+            assertions();
+        }
     }
 
     @Override
@@ -916,6 +932,7 @@ public class PersistentBinaryDeque implements BinaryDeque {
         this.m_awaitingTruncation = m_awaitingTruncation;
     }
 
+    @Override
     public ExportSequenceNumberTracker scanForGap(BinaryDequeScanner scaner) throws IOException
     {
         if (m_closed) {
