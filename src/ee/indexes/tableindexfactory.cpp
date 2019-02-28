@@ -276,8 +276,17 @@ TableIndex *TableIndexFactory::getInstance(const TableIndexScheme &scheme) {
         }
     } else {
         valueCount = scheme.columnIndices.size();
+        int32_t totalColumns = tupleSchema->columnCount() + tupleSchema->hiddenColumnCount();
         for (size_t ii = 0; ii < valueCount; ++ii) {
-            const TupleSchema::ColumnInfo *columnInfo = tupleSchema->getColumnInfo(scheme.columnIndices[ii]);
+            int32_t index = scheme.columnIndices[ii];
+            assert(index < totalColumns);
+            const TupleSchema::ColumnInfo *columnInfo;
+            if (index < tupleSchema->columnCount()) {
+                 columnInfo = tupleSchema->getColumnInfo(index);
+            } else {
+                 index -= tupleSchema->columnCount();
+                 columnInfo = tupleSchema->getHiddenColumnInfo(index);
+            }
             ValueType exprType = columnInfo->getVoltType();
             if ( ! isIntegralType(exprType)) {
                 isIntsOnly = false;

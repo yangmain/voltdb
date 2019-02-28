@@ -81,7 +81,7 @@ TupleSchema* TableCatalogDelegate::createTupleSchema(catalog::Table const& catal
     auto numColumns = catalogTable.columns().size();
     bool needsDRTimestamp = isXDCR && catalogTable.isDRed();
     bool needsHiddenCountForView = false;
-
+    bool needsHiddenColumnForMigration = tableTypePersistentWithMigrateStream(static_cast<TableType>(catalogTable.tableType()));
     std::map<std::string, catalog::Column*>::const_iterator colIterator;
 
     // only looking for potential existing table count(*) when this is a Materialized view table
@@ -102,8 +102,11 @@ TupleSchema* TableCatalogDelegate::createTupleSchema(catalog::Table const& catal
 
     // DR timestamp and hidden COUNT(*) should not appear at the same time
     assert(!(needsDRTimestamp && needsHiddenCountForView));
-    TupleSchemaBuilder schemaBuilder(numColumns,
-                                     (needsDRTimestamp || needsHiddenCountForView) ? 1 : 0); // hidden columns
+    int numHiddenColumns = (needsDRTimestamp || needsHiddenCountForView) ? 1 : 0;
+    if (needsHiddenColumnForMigration) {
+         numHiddenColumns++;
+    }
+    TupleSchemaBuilder schemaBuilder(numColumns, numHiddenColumns);
 
     for (colIterator = catalogTable.columns().begin();
          colIterator != catalogTable.columns().end(); colIterator++) {
@@ -115,7 +118,7 @@ TupleSchema* TableCatalogDelegate::createTupleSchema(catalog::Table const& catal
                                        catalogColumn->nullable(),
                                        catalogColumn->inbytes());
     }
-
+    int hiddenIndex = 0;
     if (needsDRTimestamp) {
         // Create a hidden timestamp column for a DRed table in an
         // active-active context.
@@ -123,16 +126,20 @@ TupleSchema* TableCatalogDelegate::createTupleSchema(catalog::Table const& catal
         // Column will be marked as not nullable in TupleSchema,
         // because we never expect a null value here, but this is not
         // actually enforced at runtime.
-        schemaBuilder.setHiddenColumnAtIndex(0,
+        schemaBuilder.setHiddenColumnAtIndex(hiddenIndex++,
                                              VALUE_TYPE_BIGINT,
                                              8,      // field size in bytes
                                              false); // nulls not allowed
     }
 
     if (needsHiddenCountForView) {
-      schemaBuilder.setHiddenColumnAtIndex(needsDRTimestamp ? 1 : 0, VALUE_TYPE_BIGINT, 8, false);
+        schemaBuilder.setHiddenColumnAtIndex(hiddenIndex++, VALUE_TYPE_BIGINT, 8, false);
     }
 
+    if (needsHiddenColumnForMigration) {
+        VOLT_DEBUG("Adding hidden column for table %s index %d", catalogTable.name().c_str(), hiddenIndex);
+        schemaBuilder.setHiddenColumnAtIndex(hiddenIndex, VALUE_TYPE_BIGINT, 8, true);
+    }
     return schemaBuilder.build();
 }
 
@@ -391,7 +398,7 @@ Table* TableCatalogDelegate::constructTableFromCatalog(catalog::Database const& 
         partitionColumnIndex = partitionColumn->index();
     }
 
-    bool exportEnabled = tableTypePeristentWithLinkingStream(static_cast<voltdb::TableType>(catalogTable.tableType()));
+    bool exportEnabled = tableTypePeristentWithLinkingStream(static_cast<TableType>(catalogTable.tableType()));
     bool tableIsExportOnly = isTableExportOnly(catalogDatabase, catalogTable);
     bool drEnabled = !forceNoDR && catalogTable.isDRed();
     bool isReplicated = catalogTable.isreplicated();
@@ -446,6 +453,21 @@ Table* TableCatalogDelegate::constructTableFromCatalog(catalog::Database const& 
         persistentTable->addIndex(index);
     }
 
+    bool needsHiddenColumnForMigration = tableTypePersistentWithMigrateStream(static_cast<TableType>(catalogTable.tableType()));
+    // index the hidden column
+    if (needsHiddenColumnForMigration) {
+        vector<int>  migrationHiddenIndexColumnIndices;
+        // the last hidden column
+        int hiddenIndex = schema->hiddenColumnCount() + schema->columnCount() -1;
+        migrationHiddenIndexColumnIndices.push_back(hiddenIndex);
+        TableIndexScheme  hiddenIndexScheme = TableIndexScheme("migrationIndex", HASH_TABLE_INDEX,
+                migrationHiddenIndexColumnIndices, TableIndex::simplyIndexColumns(),
+                true, true, schema);
+        TableIndex* migrationIndex = TableIndexFactory::getInstance(hiddenIndexScheme);
+        assert(migrationIndex);
+        persistentTable->addIndex(migrationIndex);
+        VOLT_DEBUG("Creating index on migration hidden column of %s: column index %d", tableName.c_str(), hiddenIndex);
+    }
     return table;
 }
 

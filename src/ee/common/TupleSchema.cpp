@@ -80,6 +80,18 @@ TupleSchema* TupleSchema::createTupleSchemaForTest(const std::vector<ValueType>&
     return TupleSchema::createTupleSchema(columnTypes, columnSizes, allowNull, columnInBytes);
 }
 
+TupleSchema* TupleSchema::createTupleSchemaForTest(const std::vector<ValueType>& columnTypes,
+                                                   const std::vector<int32_t>& columnSizes,
+                                                   const std::vector<bool>& allowNull,
+                                                   const std::vector<ValueType>& hiddenColumnTypes,
+                                                   const std::vector<int32_t>&   hiddenColumnSizes,
+                                                   const std::vector<bool>&      hiddenAllowNull)
+{
+    const std::vector<bool> columnInBytes (allowNull.size(), false);
+    const std::vector<bool> hiddenColumnInBytes (hiddenAllowNull.size(), false);
+    return TupleSchema::createTupleSchema(columnTypes, columnSizes, allowNull, columnInBytes,
+                           hiddenColumnTypes, hiddenColumnSizes, hiddenAllowNull, hiddenColumnInBytes);
+}
 TupleSchema* TupleSchema::createTupleSchema(const std::vector<ValueType>& columnTypes,
                                             const std::vector<int32_t>& columnSizes,
                                             const std::vector<bool>& allowNull,

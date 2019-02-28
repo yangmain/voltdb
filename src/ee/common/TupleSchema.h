@@ -92,6 +92,14 @@ public:
                                                  const std::vector<int32_t>&   columnSizes,
                                                  const std::vector<bool>&     allowNull);
 
+    /** A simplified factory method for ease of testing */
+    static TupleSchema* createTupleSchemaForTest(const std::vector<ValueType>& columnTypes,
+                                                 const std::vector<int32_t>&   columnSizes,
+                                                 const std::vector<bool>&      allowNull,
+                                                 const std::vector<ValueType>& hiddenColumnTypes,
+                                                 const std::vector<int32_t>&   hiddenColumnSizes,
+                                                 const std::vector<bool>&      hiddenAllowNull);
+
     static TupleSchema* createTupleSchema(const std::vector<AbstractExpression *> &exprs);
 
     /** Static factory method fakes a copy constructor (will also
