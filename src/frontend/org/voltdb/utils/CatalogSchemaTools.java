@@ -348,7 +348,8 @@ public abstract class CatalogSchemaTools {
         }
 
         // IW-ENG14804, add Export directive for regular (non stream) tables
-        if (!isExportOnly && !tableIsView && streamTarget != null && !streamTarget.equalsIgnoreCase(Constants.DEFAULT_EXPORT_CONNECTOR_NAME)) {
+        if (!isExportOnly && !tableIsView && streamTarget != null && !streamTarget.equalsIgnoreCase(Constants.DEFAULT_EXPORT_CONNECTOR_NAME)
+                && TableType.isStream(catalog_tbl.getTabletype())) {
             sb.append("EXPORT TABLE ").append(catalog_tbl.getTypeName()).append(" TO TARGET ").append(streamTarget).append(";\n");
         }
 
