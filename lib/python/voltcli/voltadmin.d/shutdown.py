@@ -72,6 +72,9 @@ def shutdown(runner):
                checkstats.check_dr_consumer(runner)
                runner.info('Starting resolution of external commitments...')
                checkstats.check_exporter(runner)
+               status = runner.call_proc('@Quiesce', [], []).table(0).tuple(0).column_integer(0)
+               if status <> 0:
+                    runner.abort('The cluster has failed to quiesce with status: %d' % status)
                checkstats.check_dr_producer(runner)
                runner.info('Saving a final snapshot, The cluster will shutdown after the snapshot is finished...')
             else:
