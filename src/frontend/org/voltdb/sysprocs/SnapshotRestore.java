@@ -1905,6 +1905,16 @@ public class SnapshotRestore extends VoltSystemProcedure {
                     // If the table is a snapshotted persistent table view, we will try to
                     // temporarily disable its maintenance job to boost restore performance.
                     commaSeparatedViewNamesToDisable.append(table.getTypeName()).append(",");
+                } else if (table.getMaterializer() != null
+                        && !CatalogUtil.isSnapshotableStreamedTableView(m_database, table)) {
+                    SNAP_LOG.info(
+                            "Skipping restore of " + table.getTypeName() + " which normally wouldn't be in a snapshot");
+                    /*
+                     * This is a table which would have been excluded by SnapshotUtil.getTablesToSave(). This can happen
+                     * if the schema of the current cluster is different from the snapshot so that a previously
+                     * replicated view is now a randomly partitioned view
+                     */
+                    continue;
                 }
                 tables_to_restore.add(table);
             }
