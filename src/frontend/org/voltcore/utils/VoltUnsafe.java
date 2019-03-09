@@ -33,7 +33,7 @@ import java.security.PrivilegedExceptionAction;
  */
 public abstract class VoltUnsafe {
 
-    public static final boolean isJava8 = ManagementFactory.getRuntimeMXBean().getSpecVersion().startsWith("1.8");
+    public static final boolean isJava8 = System.getProperty("java.version").startsWith("1.8");
 
     /** Unsafe. */
     private static final Unsafe UNSAFE = unsafe();
